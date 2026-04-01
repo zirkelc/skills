@@ -5,7 +5,7 @@ description: Create a git commit with an auto-generated conventional commit mess
 
 # Create Commit
 
-Create a commit with an auto-generated message summarizing all staged and unstaged changes.
+Create a commit with an auto-generated message summarizing the relevant changes for the current task.
 
 ## Step 1: Gather Changes
 
@@ -22,7 +22,23 @@ If there are no changes (nothing staged, unstaged, or untracked): stop and tell 
 For untracked files shown in `git status`, read them to understand their contents.
 For modified files, the diff output is sufficient.
 
-## Step 3: Draft Commit Message
+## Step 3: Filter to Relevant Changes
+
+Evaluate each changed/untracked file against the apparent intent of the current task. Classify each as **relevant** or **unrelated**.
+
+Mark a file as unrelated if it:
+- Belongs to a different feature or fix unrelated to the current task
+- Is an auto-generated artifact (lockfiles, build output, `.cache/`) not caused by this task
+- Appears accidentally modified (e.g. whitespace-only changes in unrelated files)
+
+If unsure about any file, ask the user before proceeding:
+> "These files are also changed — are they part of this commit?
+> - `path/to/file1`
+> - `path/to/file2`"
+
+Only carry the relevant files forward into Step 4.
+
+## Step 4: Draft Commit Message
 
 Write a conventional commit message:
 - **Type:** `feat:`, `fix:`, `chore:`, `refactor:`, `test:`, `docs:`, etc.
@@ -32,9 +48,9 @@ Write a conventional commit message:
 
 If multiple unrelated changes exist, suggest the user split them into separate commits.
 
-## Step 4: Stage and Commit
+## Step 5: Stage and Commit
 
-1. Stage relevant files with `git add <specific files>` — prefer specific files over `git add -A`
+1. Stage only the relevant files identified in Step 3 with `git add <specific files>` — never use `git add -A`
 2. Create the commit using a HEREDOC:
 
 ```
@@ -48,7 +64,7 @@ EOF
 
 3. Run `git status` to verify the commit succeeded.
 
-## Step 5: Ask About Push
+## Step 6: Ask About Push
 
 After a successful commit, ask the user: **"Push to remote?"**
 

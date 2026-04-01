@@ -29,6 +29,13 @@ Run these in parallel:
 
 Read the full diff carefully to understand what changed and why.
 
+After reading, identify any files that appear unrelated to the branch's purpose — e.g. lockfile-only changes from unrelated installs, accidental edits, or changes from a different task. If such files are detected, ask the user:
+> "These files appear unrelated to the PR — should they be included in the description?
+> - `path/to/file1`
+> - `path/to/file2`"
+
+Only use the confirmed-relevant changes when drafting the PR below.
+
 ## Step 3: Draft PR Title and Body
 
 **Title:** Short conventional-commit-style title (under 70 chars). Use the dominant change type (`feat:`, `fix:`, `chore:`, etc.).
