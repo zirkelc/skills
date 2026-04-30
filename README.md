@@ -24,14 +24,6 @@ npx skills add zirkelc/skills
   npx skills add zirkelc/skills/pr
   ```
 
-### Social
-
-- **tweet-code** — Draft a tweet about a library update or new release, with optional focused code snippet.
-
-  ```bash
-  npx skills add zirkelc/skills/tweet-code
-  ```
-
 ### Scaffolding
 
 - **typescript-package** — Scaffold a new TypeScript package from the [template-single-typescript](https://github.com/zirkelc/template-single-typescript) template.
