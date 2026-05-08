@@ -1,11 +1,24 @@
 ---
 name: commit
 description: Create a git commit with an auto-generated conventional commit message summarizing the changes. Optionally push to remote.
+argument-hint: "[optional hint: e.g. message scope/wording or follow-up like 'push']"
 ---
 
 # Create Commit
 
 Create a commit with an auto-generated message summarizing the relevant changes for the current task.
+
+## Argument Hint
+
+If the user passed an argument, treat it as guidance, not a literal message. It may contain:
+
+- **Message hints** — wording, scope, type, or focus to bias the drafted commit message (e.g. `fix typo`, `scope: api`, `feat: add cache`).
+- **Follow-up instructions** — actions to perform after committing (e.g. `push`, `push and open PR`, `no push`).
+- **Both** — combine them (e.g. `fix flaky test, then push`).
+
+Apply message hints when drafting in Step 4. Apply follow-up instructions in Step 7 (e.g. skip the "Push to remote?" prompt if the user already said `push` or `no push`).
+
+If no argument is provided, follow the default flow.
 
 ## Repository Context
 
@@ -72,7 +85,7 @@ Print a summary of the commit to the user:
 
 ## Step 7: Ask About Push
 
-After a successful commit, ask the user: **"Push to remote?"**
+If the user's argument hint already specified push behavior (e.g. `push`, `no push`), honor it directly without asking. Otherwise, ask: **"Push to remote?"**
 
-- If yes: check for upstream with `git rev-parse --abbrev-ref @{upstream} 2>/dev/null`, then `git push -u origin HEAD` (no upstream) or `git push` (has upstream). After a successful push, print the remote commit URL (from `gh browse $(git rev-parse HEAD) --no-browser`).
+- If yes (or user said `push`): check for upstream with `git rev-parse --abbrev-ref @{upstream} 2>/dev/null`, then `git push -u origin HEAD` (no upstream) or `git push` (has upstream). After a successful push, print the remote commit URL (from `gh browse $(git rev-parse HEAD) --no-browser`).
 - If no: done

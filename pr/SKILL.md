@@ -1,11 +1,25 @@
 ---
 name: pr
 description: Create a GitHub Pull Request against the default base branch, summarizing all changes on the current branch.
+argument-hint: "[optional hint: e.g. PR title/wording or follow-up like 'draft', 'merge']"
 ---
 
 # Create Pull Request
 
 Create a GitHub PR against the default base branch with a clear summary of all changes.
+
+## Argument Hint
+
+If the user passed an argument, treat it as guidance, not a literal title or body. It may contain:
+
+- **Title/body hints** — wording, scope, type, or focus to bias the drafted PR (e.g. `fix flaky tests`, `scope: api`, `emphasize the perf win`).
+- **Flags** — adjustments to the `gh pr create` invocation (e.g. `draft` → `--draft`, `base develop` → `--base develop`, `reviewer alice` → `--reviewer alice`).
+- **Follow-up instructions** — actions to perform after creating the PR (e.g. `merge`, `auto-merge`, `open in browser`).
+- **Combinations** of the above.
+
+Apply title/body hints when drafting in Step 3. Apply flags and follow-ups in Step 4 and after.
+
+If no argument is provided, follow the default flow.
 
 ## Repository Context
 
