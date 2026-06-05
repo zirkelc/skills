@@ -8,6 +8,14 @@ My personal directory of skills, straight from my `.claude` directory.
 npx skills add zirkelc/skills
 ```
 
+## Use globally (symlink)
+
+Symlink every skill in this repo into `~/.claude/skills` so edits here are live everywhere. Run the **sync-skills** skill — it inspects existing global skills, refreshes same-skill copies silently, and asks before replacing anything from a different location. Skills not in this repo are left untouched.
+
+```
+/sync-skills
+```
+
 ## Skills
 
 ### Git
@@ -30,6 +38,14 @@ npx skills add zirkelc/skills
 
   ```bash
   npx skills add zirkelc/skills/handoff
+  ```
+
+### Meta
+
+- **sync-skills** — Symlink every skill in this repo into `~/.claude/skills` so edits are live globally. Classifies each target as new / already-linked / content-update / conflict, applies safe changes silently, and asks before replacing a skill from a different location.
+
+  ```bash
+  npx skills add zirkelc/skills/sync-skills
   ```
 
 ### Scaffolding
