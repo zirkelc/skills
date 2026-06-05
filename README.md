@@ -24,6 +24,14 @@ npx skills add zirkelc/skills
   npx skills add zirkelc/skills/pr
   ```
 
+### Sessions
+
+- **handoff** — Hand off the current session to a fresh agent. Writes a self-contained markdown document (task, context, errors, reproduction, snippets, next steps) so a new agent can continue the work, often in another repo.
+
+  ```bash
+  npx skills add zirkelc/skills/handoff
+  ```
+
 ### Scaffolding
 
 - **typescript-package** — Scaffold a new TypeScript package from the [template-single-typescript](https://github.com/zirkelc/template-single-typescript) template.
