@@ -34,10 +34,19 @@ Collect the artifacts a fresh agent will need. Pull these from the conversation 
 
 - **Error messages / stack traces** — verbatim, in fenced code blocks.
 - **Reproduction** — exact steps or a minimal snippet that triggers the problem, plus expected vs. actual behavior.
-- **Relevant code** — quote the key snippets with their `file_path:line` references. Prefer precise references over pasting large blocks; quote only what matters.
-- **Root-cause analysis** — any diagnosis already reached this session (this is often the most valuable part of the handoff).
-- **Requirements / acceptance criteria** — what "done" looks like, constraints, and any user preferences stated this session.
+- **Relevant code** — quote the key snippets so they travel with the document. Prefer pasting the snippet over a bare reference; quote only what matters.
+- **Root-cause analysis** — any diagnosis already reached this session (often the most valuable part of the handoff). Present it as a **hypothesis to verify**, not settled fact, so the receiving agent confirms it before building on it.
+- **Requirements / acceptance criteria** — what "done" looks like, constraints, any user preferences stated this session, and explicitly what is **not** required.
+- **Non-goals** — anything deliberately out of scope, so the fresh agent doesn't wander.
 - **Environment** — relevant versions, package manager, branch, or commands, only if they matter to the task.
+
+### Reference things portably
+
+The receiving agent often starts in a **different repo or directory**, so absolute paths from this session are meaningless there. Anchor context to things that survive the move:
+
+- Inside the **target repo** (where work continues), `file_path:line` and relative paths are fine.
+- For anything pointing at the **origin project or a dependency**, prefer portable anchors: repo owner/name, package/module names, public symbols (function/class names), exact error text, branch names, issue/PR URLs, command names, config keys, docs titles, and search terms.
+- Rewrite any accidental machine-specific path (home dir, checkout name) into one of these anchors.
 
 ## Step 3: Determine the Continuation Target
 
@@ -65,14 +74,21 @@ Write the file using this structure. Omit any section that genuinely has no cont
 <What the user is trying to achieve, and why this is being handed off.>
 
 ## Continue Here
-- **Target:** <directory / repo where the work continues, and whether it is already cloned>
+- **Target:** <repo / package where the work continues, and whether it is already cloned. Use portable anchors, not machine paths.>
 - **First steps:** <e.g. clone repo, create branch `fix/...`, reproduce, write failing test>
 
-## Current State
-<What is already known, decided, or ruled out. The diagnosis so far.>
+## Before You Start
+You are picking this up cold. Before changing anything:
+- Locate the right repository (current dir, a parent dir, or the usual workspace) and read its local agent/repo instructions.
+- Inspect the relevant code, tests, recent commits, and any linked issue/PR state.
+- Treat the analysis below as a hypothesis: confirm it still holds, and decide whether the task is still valid, already solved, over-scoped, or better handled a different way.
+- Call out stale assumptions or risks before implementing.
 
-## Root Cause / Analysis
-<The diagnosis reached this session, if any.>
+## Current State
+<What is already known, decided, or ruled out so far.>
+
+## Root Cause / Hypothesis
+<The diagnosis reached this session, if any — stated as a hypothesis to verify, not settled fact.>
 
 ## Reproduction
 <Exact steps or minimal snippet. Expected vs. actual behavior.>
@@ -83,24 +99,44 @@ Write the file using this structure. Omit any section that genuinely has no cont
 ```
 
 ## Relevant Code
-<Key snippets with `file_path:line` references and short explanations.>
+<Key snippets quoted inline, with short explanations. Reference origin-project code by portable anchors.>
 
 ## Requirements / Acceptance Criteria
-<What "done" looks like; constraints; user preferences stated this session.>
+<What "done" looks like; constraints; user preferences; and what is explicitly NOT required.>
+
+## Non-Goals
+<Anything deliberately out of scope.>
 
 ## Environment
 <Versions, package manager, branch, commands — only if relevant.>
 
 ## Open Questions
 <Anything unknown the next agent must resolve. Be honest about gaps.>
+
+## Guardrails
+Re-check live repo / CI state where relevant. Do not push, merge, close issues/PRs, apply labels, or post public comments unless this handoff explicitly authorizes it.
 ```
 
-Write self-contained prose: the new agent cannot see this conversation, so avoid references like "as discussed above" or "the file we edited."
+Quality bar:
+- **Self-contained prose** — the new agent cannot see this conversation, so avoid references like "as discussed above" or "the file we edited."
+- **No invented facts** — only include what was established this session or verifiable from the code; mark anything unverified as such.
+- **Right altitude** — enough context to orient a fresh agent, not a giant brain dump. Quote what matters, link the rest by anchor.
+- **No path leakage** — rewrite accidental machine-specific paths into portable anchors.
 
-## Step 6: Print Summary
+## Step 6: Copy to Clipboard
+
+Copy the full handoff document to the clipboard so the user can paste it straight into a fresh agent (works even when the file path isn't reachable from the other context). Pipe the file rather than passing inline text — this avoids shell-quoting issues with backticks, `$`, and quotes in the content.
+
+- macOS: `pbcopy < "<path>"`
+- Linux (Wayland): `wl-copy < "<path>"` — or X11: `xclip -selection clipboard < "<path>"`
+- Windows: `clip.exe < "<path>"`
+
+If no clipboard tool is available, skip this step and note in the summary that the clipboard copy was unavailable (the file is still written).
+
+## Step 7: Print Summary
 
 Tell the user:
-- The absolute path to the handoff document.
+- The absolute path to the handoff document, and that it's on the clipboard (or that copying was unavailable).
 - A one-line summary of what it covers.
 - A ready-to-use line to start the fresh agent, e.g.:
-  > Continue in `<target dir>`, then point a new session at the handoff: `claude "Read <path> and continue the work."`
+  > Continue in `<target dir>`, then point a new session at the handoff: `claude "Read <path> and continue the work."` — or just paste the clipboard into a new session.
