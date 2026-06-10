@@ -102,15 +102,19 @@ Ask: **"Want me to add these to the repo — logo into the README, and banner as
 ### 7a. Logo → README
 
 1. **Get the repo locally.** Check whether a local clone already exists (ask the user for the path, or look in the usual workspace). If none, ask whether to clone and where, then `git clone`. Never assume a path.
-2. **Place the image.** Copy `logo.png` into the repo at a sensible location (default `assets/logo.png`; match an existing convention like `.github/` or `docs/` if the repo already uses one). Create the directory if needed.
-3. **Confirm placement in the README.** Default is centered at the very top, above the title. Confirm the spot, then insert:
+2. **Copy the assets.** Copy **all four files** — `logo.png`, `logo.svg`, `banner.png`, `banner.svg` — into the repo at a sensible location (default `assets/`; match an existing convention like `.github/` or `docs/` if the repo already uses one). Create the directory if needed. Keeping the editable SVG sources alongside the PNGs lets the artwork be tweaked and re-rendered later.
+   ```bash
+   mkdir -p "<repo>/assets"
+   cp "$WORK"/logo.png "$WORK"/logo.svg "$WORK"/banner.png "$WORK"/banner.svg "<repo>/assets/"
+   ```
+3. **Confirm placement in the README.** Default is the logo centered at the very top, above the title. Confirm the spot, then insert:
    ```html
    <p align="center">
      <img src="assets/logo.png" alt="<repo name> logo" width="200" />
    </p>
    ```
    Adjust `width` to taste (150–200 is typical). If the user wants the logo to adapt to light/dark themes and you produced two variants, use a `<picture>` element with `media="(prefers-color-scheme: dark)"`.
-4. **Commit.** Stage only the logo file and the README. Use a conventional commit (e.g. `docs: add repo logo to README`). **Ask before pushing** unless the user already said to push.
+4. **Commit.** Stage the asset files and the README. Use a conventional commit (e.g. `docs: add repo logo and banner assets`). **Ask before pushing** unless the user already said to push.
 
 ### 7b. Banner → Social Preview
 
@@ -123,5 +127,5 @@ There is **no `gh` CLI command or public API** to set the social preview — it 
 
 Tell the user:
 - The temp paths to `logo.png` and `banner.png`.
-- What was integrated: the README commit (and whether it was pushed), and whether the social preview was uploaded or is awaiting manual upload.
+- What was integrated: the committed assets (`logo`/`banner`, PNG + SVG) and README change (and whether it was pushed), and whether the social preview was uploaded or is awaiting manual upload.
 - Any follow-ups (e.g. "push the README commit", "upload the banner in Settings").
