@@ -40,6 +40,14 @@ Symlink every skill in this repo into `~/.claude/skills` so edits here are live 
   npx skills add zirkelc/skills/handoff
   ```
 
+### GitHub
+
+- **repo-logo** — Generate a logo and social banner for a GitHub repo, iterate on the design, then optionally add the logo to the README and set the banner as the repo's social preview.
+
+  ```bash
+  npx skills add zirkelc/skills/repo-logo
+  ```
+
 ### Meta
 
 - **sync-skills** — Symlink every skill in this repo into `~/.claude/skills` so edits are live globally. Classifies each target as new / already-linked / content-update / conflict, applies safe changes silently, and asks before replacing a skill from a different location.
