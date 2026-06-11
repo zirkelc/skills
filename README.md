@@ -40,6 +40,12 @@ Symlink every skill in this repo into `~/.claude/skills` so edits here are live 
   npx skills add zirkelc/skills/handoff
   ```
 
+- **copy** — Copy your latest message, or a specific part of it (a command, code block, quote, or snippet), to the clipboard exactly as authored, avoiding the indentation and line-break artifacts of manual terminal selection.
+
+  ```bash
+  npx skills add zirkelc/skills/copy
+  ```
+
 ### GitHub
 
 - **release-please** — Merge an open Release Please PR for a repo to cut a release, then monitor the release workflow and report the published version.
