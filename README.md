@@ -42,6 +42,12 @@ Symlink every skill in this repo into `~/.claude/skills` so edits here are live 
 
 ### GitHub
 
+- **release-please** — Merge an open Release Please PR for a repo to cut a release, then monitor the release workflow and report the published version.
+
+  ```bash
+  npx skills add zirkelc/skills/release-please
+  ```
+
 - **repo-logo** — Generate a logo and social banner for a GitHub repo, iterate on the design, then optionally add the logo to the README and set the banner as the repo's social preview.
 
   ```bash
