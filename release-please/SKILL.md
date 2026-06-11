@@ -12,11 +12,19 @@ All steps use the `gh` CLI. Do not proceed past a failing precondition without t
 
 ## Step 1: Resolve the Repository
 
-Get the target repo from the argument (or ask the user if none was given). The argument may be:
+If an argument was given, use it as the target repo. It may be:
 
 - A full URL: `https://github.com/owner/repo` → extract `owner/repo`.
 - A slug: `owner/repo` → use as-is.
 - A bare name: `repo` → resolve the owner via the authenticated user (`gh api user --jq .login`) and try `<login>/<repo>`.
+
+If **no argument** was given, default to the repo of the current working directory:
+
+```bash
+gh repo view --json nameWithOwner --jq .nameWithOwner
+```
+
+If that fails (not inside a git repo, or no GitHub remote), tell the user and ask them to pass a repo URL or `owner/repo`.
 
 Confirm the repo exists and you can read it:
 
