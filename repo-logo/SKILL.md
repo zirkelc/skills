@@ -106,6 +106,8 @@ If `banner.png` exceeds 1 MB, simplify the SVG (fewer gradients/filters) or re-r
 
 Read the rendered PNGs back with the Read tool so you (and the user) can see them, and report the file paths. Ask for feedback.
 
+**Open the working directory in Finder** so the user can inspect the real files at full size (and grab them): `open "$WORK"` (macOS). Do this once the first renders exist; the window stays open across re-renders. Best-effort — skip silently if it fails or on a non-macOS platform.
+
 If you made **two logo variants**, sanity-check each against the theme it targets: `logo-light.png` must read on a near-white background and `logo-dark.png` on a near-black one. Transparent PNGs may appear on a checkerboard in the Read preview — judge contrast against the intended theme background, not the preview.
 
 On any change request, **return to Step 4**, edit the SVGs, re-render, and review again. Loop until the user confirms the images. Do not move on to integration until confirmed.
