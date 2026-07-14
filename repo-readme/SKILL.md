@@ -1,5 +1,5 @@
 ---
-name: readme
+name: repo-readme
 description: Write or rewrite the README for a TypeScript/npm library, following a fixed house structure (centered header, Why?, Installation, Usage, Advanced, API, Types, License). Derives Usage and API sections from the package's actual exports. Use when the user wants to write, rewrite, restructure, or review a README for a library or package.
 argument-hint: "[optional: path to the package, defaults to the current working directory]"
 ---
