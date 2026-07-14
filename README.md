@@ -60,6 +60,12 @@ Symlink every skill in this repo into `~/.claude/skills` so edits here are live 
   npx skills add zirkelc/skills/repo-logo
   ```
 
+- **readme** — Write or rewrite the README for a TypeScript/npm library, following a fixed structure (centered header, Why?, Installation, Usage, Advanced, API, Types, License). Derives the Usage and API sections from the package's actual exports.
+
+  ```bash
+  npx skills add zirkelc/skills/readme
+  ```
+
 ### Meta
 
 - **sync-skills** — Symlink every skill in this repo into `~/.claude/skills` so edits are live globally. Classifies each target as new / already-linked / content-update / conflict, applies safe changes silently, and asks before replacing a skill from a different location.
