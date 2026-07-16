@@ -1,5 +1,6 @@
 ---
 name: copy
+disable-model-invocation: true
 description: Copy your latest message, or a specific part of it, to the user's clipboard. Use when the user wants to "copy that", "copy to clipboard", or grab a quote/snippet/command/code block from your previous answer without selecting it manually in the terminal (which mangles indentation and line breaks).
 argument-hint: "[optional: what to copy, e.g. 'the command', 'the json', 'the second code block']"
 ---

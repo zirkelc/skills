@@ -1,5 +1,6 @@
 ---
 name: sync-skills
+disable-model-invocation: true
 description: Symlink every skill in this repo into the global Claude skills directory (~/.claude/skills) so edits in the repo are live everywhere. Inspects existing global skills first, classifies each as new / already-linked / content-update / conflict, silently applies safe changes, and asks before replacing a skill that comes from a different location or source. Use when the user wants to "sync skills", "link skills globally", or "make my repo skills available everywhere".
 argument-hint: "[optional: 'dry-run' to preview without changing, or a path to the global skills dir]"
 ---

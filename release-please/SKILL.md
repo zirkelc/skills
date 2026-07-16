@@ -1,5 +1,6 @@
 ---
 name: release-please
+disable-model-invocation: true
 description: Merge an open Release Please PR on GitHub to cut a release, then monitor the release workflow and report the published version. Use when the user wants to release, ship, or publish a repo whose releases are managed by release-please.
 argument-hint: "[repo url or owner/repo or name]"
 ---

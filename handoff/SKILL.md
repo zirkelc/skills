@@ -1,5 +1,6 @@
 ---
 name: handoff
+disable-model-invocation: true
 description: Hand off the current Claude Code session to a fresh agent. Writes a self-contained markdown handoff document capturing the task, context, errors, reproduction, code snippets, and next steps, so a new agent (often in a different repo) can continue the work. Use when the user wants to "hand off", "transfer", or "continue this in another project/session".
 argument-hint: "[optional: target directory and/or focus hint, e.g. '../some-lib fix the parser bug']"
 ---
