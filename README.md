@@ -18,7 +18,7 @@ Symlink every skill in this repo into `~/.claude/skills` so edits here are live 
 
 ## Project overrides
 
-**commit** and **pr** stand down for the project they run in. If the repo defines its own skill of the same name at `.claude/skills/commit/SKILL.md` or `.claude/skills/pr/SKILL.md`, that file is read and followed instead — it replaces the personal flow entirely rather than merging with it, so a repo copy needs to be self-contained. Everywhere else, the versions here apply as written.
+**commit**, **pr**, and **issue** stand down for the project they run in. If the repo defines its own skill of the same name under `.claude/skills/<name>/SKILL.md`, that file is read and followed instead — it replaces the personal flow entirely rather than merging with it, so a repo copy needs to be self-contained. Everywhere else, the versions here apply as written.
 
 This matters because personal skills otherwise shadow project ones of the same name, which silently makes a repo's own `commit`/`pr` unreachable.
 
@@ -57,6 +57,13 @@ A pair: after committing, **commit** hands any open PR to **pr** to refresh its 
   ```
 
 ### GitHub
+
+- **issue** — Turn a finding that surfaced mid-session into a structured GitHub issue, then reference it from the code with a `TODO(#1234)` comment. Applies a bar so most TODOs stay TODOs, and never files without confirmation.
+  - `invocable: auto`
+
+  ```bash
+  npx skills add zirkelc/skills/issue
+  ```
 
 - **release-please** — Merge an open Release Please PR for a repo to cut a release, then monitor the release workflow and report the published version.
   - `invocable: slash-only`
