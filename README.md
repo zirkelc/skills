@@ -16,6 +16,12 @@ Symlink every skill in this repo into `~/.claude/skills` so edits here are live 
 /sync-skills
 ```
 
+## Project overrides
+
+**commit** and **pr** stand down for the project they run in. If the repo defines its own skill of the same name at `.claude/skills/commit/SKILL.md` or `.claude/skills/pr/SKILL.md`, that file is read and followed instead — it replaces the personal flow entirely rather than merging with it, so a repo copy needs to be self-contained. Everywhere else, the versions here apply as written.
+
+This matters because personal skills otherwise shadow project ones of the same name, which silently makes a repo's own `commit`/`pr` unreachable.
+
 ## Skills
 
 Each skill is tagged with how it can be invoked:
@@ -25,14 +31,16 @@ Each skill is tagged with how it can be invoked:
 
 ### Git
 
-- **commit** — Create a git commit with an auto-generated conventional commit message. Optionally push to remote.
+A pair: after committing, **commit** hands any open PR to **pr** to refresh its description, so PR bodies have a single owner.
+
+- **commit** — Create a git commit with an auto-generated conventional commit message, then optionally push, sync the description of any PR already open for the branch, and report drift from the default branch.
   - `invocable: auto`
 
   ```bash
   npx skills add zirkelc/skills/commit
   ```
 
-- **pr** — Create a GitHub Pull Request against the default base branch, summarizing all changes on the current branch.
+- **pr** — Create a GitHub Pull Request against the default base branch, or refresh the description of the branch's existing one, summarizing all changes on the current branch. Run it again after more commits to bring the description back in sync.
   - `invocable: auto`
 
   ```bash
