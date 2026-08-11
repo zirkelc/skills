@@ -27,40 +27,30 @@ This matters because personal skills otherwise shadow project ones of the same n
 Each skill is tagged with how it can be invoked:
 
 - `invocable: auto` — Claude may trigger it from a matching request
-- `invocable: slash-only` — runs only when you invoke it explicitly (e.g. `/handoff`), because it carries `disable-model-invocation: true`.
+- `invocable: slash-only` — runs only when you invoke it explicitly (e.g. `/handoff-doc`), because it carries `disable-model-invocation: true`.
 
 ### Git
 
-A pair: after committing, **commit** hands any open PR to **pr** to refresh its description, so PR bodies have a single owner.
-
 - **commit** — Create a git commit with an auto-generated conventional commit message, then optionally push, sync the description of any PR already open for the branch, and report drift from the default branch.
   - `invocable: auto`
-
   ```bash
   npx skills add zirkelc/skills/commit
   ```
-
 - **pr** — Create a GitHub Pull Request against the default base branch, or refresh the description of the branch's existing one, summarizing all changes on the current branch. Run it again after more commits to bring the description back in sync.
   - `invocable: auto`
-
   ```bash
   npx skills add zirkelc/skills/pr
   ```
 
 ### Sessions
 
-A pair, differing in where the work goes: **handoff** writes a document for you to carry somewhere else, **orca-handoff** starts the session itself and reports back.
-
-- **handoff** — Hand off the current session to a fresh agent. Writes a self-contained markdown document (task, context, errors, reproduction, snippets, next steps) so a new agent can continue the work, often in another repo.
+- **handoff-doc** — Hand off the current session to a fresh agent. Writes a self-contained markdown document (task, context, errors, reproduction, snippets, next steps) so a new agent can continue the work, often in another repo.
   - `invocable: slash-only`
-
   ```bash
-  npx skills add zirkelc/skills/handoff
+  npx skills add zirkelc/skills/handoff-doc
   ```
-
 - **orca-handoff** — Delegate a sub-task to a fresh Claude session in its own new [Orca](https://www.onorca.dev) worktree, so the current conversation stays on its main thread. Writes the whole brief into the spawned session's prompt, since nothing else travels, and reports back what it deliberately left out of scope so it does not go unowned. Requires the Orca CLI.
   - `invocable: auto`
-
   ```bash
   npx skills add zirkelc/skills/orca-handoff
   ```
@@ -69,28 +59,21 @@ A pair, differing in where the work goes: **handoff** writes a document for you 
 
 - **issue** — Turn a finding that surfaced mid-session into a structured GitHub issue, then reference it from the code with a `TODO(#1234)` comment. Applies a bar so most TODOs stay TODOs, and never files without confirmation.
   - `invocable: auto`
-
   ```bash
   npx skills add zirkelc/skills/issue
   ```
-
 - **release-please** — Merge an open Release Please PR for a repo to cut a release, then monitor the release workflow and report the published version.
   - `invocable: slash-only`
-
   ```bash
   npx skills add zirkelc/skills/release-please
   ```
-
 - **repo-logo** — Generate a logo and social banner for a GitHub repo, iterate on the design, then optionally add the logo to the README and set the banner as the repo's social preview.
   - `invocable: auto`
-
   ```bash
   npx skills add zirkelc/skills/repo-logo
   ```
-
 - **repo-readme** — Write or rewrite the README for a TypeScript/npm library, following a fixed structure (centered header, Why?, Installation, Usage, Advanced, API, Types, License). Derives the Usage and API sections from the package's actual exports.
   - `invocable: auto`
-
   ```bash
   npx skills add zirkelc/skills/repo-readme
   ```
@@ -99,7 +82,6 @@ A pair, differing in where the work goes: **handoff** writes a document for you 
 
 - **sync-skills** — Symlink every skill in this repo into `~/.claude/skills` so edits are live globally. Classifies each target as new / already-linked / content-update / conflict, applies safe changes silently, and asks before replacing a skill from a different location.
   - `invocable: slash-only`
-
   ```bash
   npx skills add zirkelc/skills/sync-skills
   ```
@@ -108,14 +90,12 @@ A pair, differing in where the work goes: **handoff** writes a document for you 
 
 - **typescript-package** — Scaffold a new TypeScript package from the [template-single-typescript](https://github.com/zirkelc/template-single-typescript) template.
   - `invocable: auto`
-
   ```bash
   npx skills add zirkelc/skills/typescript-package
   ```
-
 - **vscode-extension** — Scaffold a new VS Code extension from the [template-vscode-extension](https://github.com/zirkelc/template-vscode-extension) template.
   - `invocable: auto`
-
   ```bash
   npx skills add zirkelc/skills/vscode-extension
   ```
+

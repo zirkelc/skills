@@ -51,7 +51,7 @@ Notes:
 Print a concise table/list grouped by classification, e.g.:
 
 ```
-NEW:      handoff
+NEW:      handoff-doc
 UPDATE:   commit, typescript-package   (replacing older copies of the same skill)
 LINKED:   pr                           (already up to date)
 CONFLICT: foo  -> currently a symlink to ../../.agents/skills/foo (other location)
