@@ -49,11 +49,20 @@ A pair: after committing, **commit** hands any open PR to **pr** to refresh its 
 
 ### Sessions
 
+A pair, differing in where the work goes: **handoff** writes a document for you to carry somewhere else, **orca-handoff** starts the session itself and reports back.
+
 - **handoff** — Hand off the current session to a fresh agent. Writes a self-contained markdown document (task, context, errors, reproduction, snippets, next steps) so a new agent can continue the work, often in another repo.
   - `invocable: slash-only`
 
   ```bash
   npx skills add zirkelc/skills/handoff
+  ```
+
+- **orca-handoff** — Delegate a sub-task to a fresh Claude session in its own new [Orca](https://www.onorca.dev) worktree, so the current conversation stays on its main thread. Writes the whole brief into the spawned session's prompt, since nothing else travels, and reports back what it deliberately left out of scope so it does not go unowned. Requires the Orca CLI.
+  - `invocable: auto`
+
+  ```bash
+  npx skills add zirkelc/skills/orca-handoff
   ```
 
 ### GitHub
