@@ -33,8 +33,8 @@ If no argument is provided, follow the default flow.
 - Working tree status: !`git status`
 - Unstaged changes: !`git diff`
 - Staged changes: !`git diff --cached`
-- Recent commits (style reference): !`git log -5 --format='%h %s'`
-- Current branch: !`git rev-parse --abbrev-ref HEAD`
+- Recent commits (style reference): !`git log -5 --format='%h %s' 2>/dev/null || true`
+- Current branch: !`git branch --show-current`
 - Default branch: !`git symbolic-ref --short refs/remotes/origin/HEAD 2>/dev/null || echo origin/main`
 
 The default branch is reported as `origin/<name>`; the local branch name is the part after `origin/`. Commands below use the `origin/HEAD` ref directly, which git resolves to the same thing. If `origin/HEAD` is unset in this repo, substitute `origin/main`.
