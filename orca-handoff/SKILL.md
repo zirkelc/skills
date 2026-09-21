@@ -425,14 +425,15 @@ preview shows a bare shell prompt rather than a running agent: the session is go
 and the text would be run as a shell command. Your card comment is the record in
 that case.
 
-Otherwise build the message and send it:
+Otherwise build the message and send it (do not rename these to `name`, `path` or
+`branch`: in zsh, `path` is tied to `$PATH` and assigning it breaks every command after):
 
   w=$(orca worktree current --json)
-  name=$(jq -r '.result.worktree.displayName' <<<"$w")
-  path=$(jq -r '.result.worktree.path' <<<"$w")
-  branch=$(jq -r '.result.worktree.branch' <<<"$w" | sed 's#^refs/heads/##')
+  wt_name=$(jq -r '.result.worktree.displayName' <<<"$w")
+  wt_path=$(jq -r '.result.worktree.path' <<<"$w")
+  wt_branch=$(jq -r '.result.worktree.branch' <<<"$w" | sed 's#^refs/heads/##')
   orca terminal send --terminal <PARENT_HANDLE> --enter --json \
-    --text "[handoff callback] $name | $path | $branch | $ORCA_TERMINAL_HANDLE | <the report>"
+    --text "[handoff callback] $wt_name | $wt_path | $wt_branch | $ORCA_TERMINAL_HANDLE | <the report>"
 
 The report is for a session that has moved on and has to decide what to do next, so
 give it enough to decide with. Several sentences is normal. Say concretely what
