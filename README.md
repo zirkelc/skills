@@ -78,6 +78,14 @@ Each skill is tagged with how it can be invoked:
   npx skills add zirkelc/skills/repo-readme
   ```
 
+### Performance
+
+- **autoresearch**: Run a performance campaign on any repo as an autoresearch loop. Pin behaviour with a characterisation guard, compare two git revisions with a paired A/B harness, calibrate the noise floor, keep or discard one small experiment at a time, and package the kept commits into independently verified PRs (each one confirmed before creation). Ships ready-to-copy harnesses per runtime (`node-ts` in-process, `generic` for any benchmark command).
+  - `invocable: auto`
+  ```bash
+  npx skills add zirkelc/skills/autoresearch
+  ```
+
 ### Meta
 
 - **sync-skills** — Symlink every skill in this repo into `~/.claude/skills` so edits are live globally. Classifies each target as new / already-linked / content-update / conflict, applies safe changes silently, and asks before replacing a skill from a different location.
