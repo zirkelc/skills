@@ -35,6 +35,7 @@ Report to the user:
 - Package manager, how the tests run, and how long they take.
 - Whether a benchmark exists (framework, what it measures, on which inputs), its metric, whether lower or higher is better, and how long one full run takes.
 - Whether the tests pin observable behaviour, or only a subset.
+- Whether the repo ships a build that is sold on size (a mini, browser or edge entry point), whether a size budget is enforced anywhere, and on which bytes. A change that adds a code path adds bytes to every build that includes it, and a size-sensitive project will reject a real time win that breaks its budget.
 - Which artifacts are derived, which of them are committed, and which artifact each gate consumes. A repo that commits build output can run its tests against one artifact while the harness measures another. Answer it explicitly: if the tests load `cjs/` and you change `src/`, every guard run is green for the wrong reason.
 - Which metric the maintainers actually accept. Look at merged perf PRs and their titles. Time is the default, but some maintainers value memory per instance or compressed bundle size more, and they reject wins on a metric they do not value. `references/methodology.md` (Other metrics) describes how to measure each one.
 
@@ -47,6 +48,8 @@ Existing benchmarks usually cannot serve as the A/B instrument, because they loa
 Performance work that changes behaviour is not an optimisation. Before the first experiment, you need a check that fails when output changes.
 
 If the test suite pins observable output, use it. If not, add a characterisation guard: run the current code over the benchmark inputs and record the results (return values, error messages and issue lists, or a hash of them if they are large). This captures current behaviour as-is, including bugs. The point is to prove that each change preserves behaviour, not that the code is correct.
+
+A guard proves behaviour on the inputs you chose, and nothing else. Choose them so that the cheap wins of this kind of work are observable: if the library memoizes, caches or otherwise shares structures between results, include an input where the same object is reachable twice (a shared node, a cycle, a repeated reference). Without such an input, every change that stops copying something looks behaviour-preserving.
 
 Make the benchmark cases deterministic (seeded random data), so that the same case definitions feed both the guard and the A/B harness. Each runtime folder ships a guard script for this.
 
@@ -117,7 +120,10 @@ Keep the plan and the log out of git while the loop runs, because a discard rese
 - A change that targets one path may keep on a per-case rule: the targeted case clears twice its own band from step 4 in both runs, and the summaries do not regress. Say so in the log.
 - A marked row (the harness flags a band that contains 0%, or one that is wide against its median) says that **this run** does not confirm it, not that the change does nothing. Use the second run, and a standalone run when the row is a case the change did not touch. A row marked in both runs is no effect; a row marked once and clean once is a noisy case with a real effect.
 - Simpler is better, all else equal. The bar gates changes that add complexity. A change that removes code and is performance-neutral is worth keeping. A win that adds a cache with a subtle invariant probably is not. Record how you weighed it.
+- A change whose correctness rests on the rest of the codebase keeping an invariant ("nothing writes to this shared object", "this structure is never aliased") costs more than its diff: it constrains future work, and a later, unrelated change can break it without touching your code. Name the invariant in the log and in the PR body, and weigh it as complexity, not as a free win.
 - If the total improves but a single case clearly regresses, say so instead of hiding it in the average.
+- Measure the compressed size delta of every change that adds a code path (a fast path, a cache, a new branch), and weigh it with the time delta. In a project with a size budget, bytes can reject a real win.
+- A change that removes a defensive copy, or that starts mutating in place, needs an input where the aliasing is observable before the guard means anything. Add that case first, then make the change.
 - Regenerate every committed derived artifact before the guard and the tests, and again after a discard: `git reset --hard` restores the sources but leaves the generated files of the abandoned experiment in place.
 - Run what CI runs, not only the test command, but split it by cost: the cheap gates (tests, lint, type check) before every commit, the expensive ones (coverage, docs build, whole-CI equivalent) before a keep becomes final. A change that needs a new test to hold the project's coverage rule is more expensive than its delta suggests; weigh that in the keep decision and record it in the log.
 - If the guard changes, the change altered behaviour. Discard it, log it as `behaviour`, and keep it as a decision for the user. Never update the guard to make it pass.

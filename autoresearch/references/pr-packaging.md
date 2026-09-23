@@ -47,6 +47,7 @@ Run from the harness location (the campaign branch):
 
 1. One noise-control run with identical code on both sides.
 2. Two A/B runs of the base against the branch.
+3. A standalone run per headline case (one revision per process), because in-process pairing inflates small, call-site-bound cases on both sides. The number a maintainer reproduces is the standalone one.
 
 Build the verification table from these runs, never from the campaign log: isolated effects differ from stacked ones.
 
@@ -61,6 +62,7 @@ Use `templates/pr-body.md`. Every PR gets the same preamble (the campaign and it
 - **What this PR does**: one paragraph per commit. What was slow, why, and what changed. Point to existing patterns in the codebase that the change follows, and to prior art by the maintainers (unmerged branches, earlier PRs).
 - **Verification**: a table with run 1, run 2 and the speed-up versus base for the cases the PR targets, plus the suite total. Mark noisy cases as noise instead of claiming them.
 - **Observable surface**: everything a careful reviewer could notice: property descriptors, enumerability, own vs inherited properties, mutation semantics, new internal fields, error message timing. Name each one. A reviewer who finds an unlisted difference stops trusting the rest.
+- **Invariants the change introduces**: anything the rest of the codebase must keep true for the change to stay correct, for example "nothing writes to this shared object" or "this structure is never aliased". A maintainer is accepting a constraint on future work, not only a diff, and that is a cost they are entitled to weigh.
 - **Reproducing the numbers**: run instructions against the base, plus the harness itself. Two ways, in order of preference. Push the campaign branch to a fork and link it at a **named commit** (a branch can be force-pushed or deleted, and the reviewer's reproduction then silently differs); that also exposes the plan and the log, so a reviewer can see the experiments that failed, which is the more convincing artifact. Inline the sources in `<details>` blocks only when no fork exists or the repo is private. Either way, keep the cases module inline: it defines what was measured, and that is the file a reviewer reads to judge whether the benchmark is honest. For upstream PRs, use the PR head ref: `git fetch origin pull/<N>/head:pr-<N>`.
 - **Instrument artefacts**: if a case shows a delta that standalone timing does not reproduce (see `methodology.md`), say so in the body. A reviewer who runs the harness will see the same line.
 - **Companion PRs**: links to the other PRs of the campaign. Add these only after all PRs exist, with their real numbers. Placeholder numbers such as `#1 #2` link to, and notify, the old issues 1 and 2 of the target repo.
@@ -79,5 +81,7 @@ gh pr create --repo <owner/repo> --base <base> --head <fork-owner>:<branch> --ti
 If the user wants a staging round, create the PRs on their fork first, then transfer them upstream: create the upstream PRs, update the bodies with the real numbers and head refs, and close the fork PRs with a link to the upstream PR.
 
 If `gh pr create` fails with an API error, check with `gh pr view <branch> --repo <owner/repo>` whether the PR exists before you retry.
+
+While a PR waits, the base moves. Re-verify before you nudge it, and re-check the invariants from its body against current base: work that lands after you open a PR can add exactly the state your change assumed nobody would add, which turns a correct change into a broken one without touching its diff.
 
 Afterwards, keep the campaign branch, the plan and the log. They are the reference when a reviewer asks about a discarded alternative, and when later PRs need a rebase after earlier ones land.
