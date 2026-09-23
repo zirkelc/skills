@@ -195,13 +195,21 @@ if (values.child) {
     /** Widest interquartile band of the two orders, expressed as a delta range. */
     const lo = (Math.min(ab.p25, 1 / ba.p75) - 1) * 100;
     const hi = (Math.max(ab.p75, 1 / ba.p25) - 1) * 100;
-    /** A band that contains 0% means the iterations disagree about the direction: no effect. */
+    /**
+     * Two markers, two different questions. `?`: the band contains 0%, so the iterations disagree
+     * about the direction and the case shows no effect. `~`: the band is wide against the size of
+     * the median, which is the signature of an in-process artefact or of a case too short to time.
+     * Both are hints to run `solo.mts`, never a reason to discard on their own.
+     */
     const straddles = lo < 0 && hi > 0;
+    const medianPct = (ratio - 1) * 100;
+    const wide = !straddles && hi - lo > 2 * Math.abs(medianPct);
+    const marker = straddles ? "?" : wide ? "~" : " ";
     logSum += Math.log(ratio);
     const a = (ab.first + ba.second) / 2;
     sumA += a;
     sumB += a * ratio;
-    const band = `${lo >= 0 ? "+" : ""}${lo.toFixed(1)}..${hi >= 0 ? "+" : ""}${hi.toFixed(1)}%${straddles ? "?" : " "}`;
+    const band = `${lo >= 0 ? "+" : ""}${lo.toFixed(1)}..${hi >= 0 ? "+" : ""}${hi.toFixed(1)}%${marker}`;
     console.log(`${ab.name.padEnd(26)}${ms(a)}${ms(a * ratio)} ${pct(ratio)}${band.padStart(16)}${speedup(ratio)}`);
   }
 
@@ -211,5 +219,7 @@ if (values.child) {
   const geo = Math.exp(logSum / orderAB.length);
   console.log(`${"TOTAL".padEnd(26)}${ms(sumA)}${ms(sumA * totalRatio)} ${pct(totalRatio)}${"".padStart(16)}${speedup(totalRatio)}`);
   console.log(`${"GEOMEAN".padEnd(46)} ${pct(geo)}${"".padStart(16)}${speedup(geo)}`);
-  console.log(`(band = interquartile range of per-iteration deltas; "?" = the band contains 0%, treat as no effect)`);
+  console.log(
+    `(band = interquartile range of per-iteration deltas; "?" = contains 0%, no effect; "~" = wide against its median, confirm with solo.mts)`
+  );
 }

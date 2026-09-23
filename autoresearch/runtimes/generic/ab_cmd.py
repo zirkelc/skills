@@ -135,7 +135,7 @@ def main() -> None:
                 target[name] = min(target.get(name, math.inf), ns)
         for name, ns_a in this_iter["a"].items():
             ns_b = this_iter["b"].get(name)
-            if ns_b:
+            if ns_b is not None and ns_a > 0:
                 ratios.setdefault(name, []).append(ns_b / ns_a)
 
     names = [n for n in min_a if n in min_b]
@@ -158,17 +158,23 @@ def main() -> None:
         ratio = quantile(ratios[name], 0.5)
         lo = (quantile(ratios[name], 0.25) - 1) * 100
         hi = (quantile(ratios[name], 0.75) - 1) * 100
-        straddles = "?" if lo < 0 < hi else " "
+        median_pct = (ratio - 1) * 100
+        if lo < 0 < hi:
+            marker = "?"  # the iterations disagree about the direction: no effect
+        elif hi - lo > 2 * abs(median_pct):
+            marker = "~"  # wide against its own median: confirm the case standalone
+        else:
+            marker = " "
         total_a += a
         total_b += a * ratio
         log_sum += math.log(ratio)
-        band = f"{lo:+.1f}..{hi:+.1f}%{straddles}"
+        band = f"{lo:+.1f}..{hi:+.1f}%{marker}"
         print(f"{name:<26}{ms(a)}{ms(a * ratio)} {(ratio - 1) * 100:7.2f}%{band:>16} {1 / ratio:7.2f}x")
     total_ratio = total_b / total_a
     geo = math.exp(log_sum / len(names))
     print(f"{'TOTAL':<26}{ms(total_a)}{ms(total_b)} {(total_ratio - 1) * 100:7.2f}%{'':>16} {1 / total_ratio:7.2f}x")
     print(f"{'GEOMEAN':<46} {(geo - 1) * 100:7.2f}%{'':>16} {1 / geo:7.2f}x")
-    print('(band = interquartile range of per-iteration deltas; "?" = the band contains 0%, treat as no effect)')
+    print('(band = interquartile range of per-iteration deltas; "?" = contains 0%, no effect; "~" = wide against its median, confirm standalone)')
 
 
 if __name__ == "__main__":

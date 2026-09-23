@@ -44,6 +44,7 @@ while (Date.now() - start < SECONDS * 1_000) {
 }
 const { profile } = (await session.post("Profiler.stop")) as { profile: any };
 session.disconnect();
+for (const c of selected) c.teardown?.();
 
 const outDir = path.join(config.root, ".perf-prof");
 fs.mkdirSync(outDir, { recursive: true });

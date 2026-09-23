@@ -46,6 +46,11 @@ Five things I add on top of the items:
 
 Order of implementation, by what a future campaign loses without it: 1, 8, 6, 3, 5, 2, then the rest.
 
+**Post-implementation verification (campaign author, after commit d6361a3):** the implementation was
+re-run against the original campaign data. One claim does not hold (item 6, the `?slot=` fix) and the
+new dispersion band does not catch the case it was meant to help with. Details, numbers and two
+suggested corrections: [Appendix D](#appendix-d-post-implementation-verification).
+
 ## Contents
 
 - [A. Measurement method](#a-measurement-method) (items 1 to 7)
@@ -55,6 +60,7 @@ Order of implementation, by what a future campaign loses without it: 1, 8, 6, 3,
 - [Appendix A: diff of the runtime against the skill's copy](#appendix-a-diff-of-the-runtime-against-the-skills-copy)
 - [Appendix B: new files](#appendix-b-new-files)
 - [Appendix C: evidence](#appendix-c-evidence)
+- [Appendix D: post-implementation verification](#appendix-d-post-implementation-verification)
 
 | # | Item | Target file | Cost when missing | Verdict |
 |---|---|---|---|---|
@@ -229,6 +235,11 @@ artefact instead of only detecting it. It costs one extra compile of a small mod
 has to ship, because the library's own objects and shared built-ins stay polymorphic, so `solo.mts`
 stays as the confirmation step, and the rule "confirm a per-case regression standalone before you
 report, act on, or discard for it" goes into `methodology.md` as written.
+
+> **Corrected by [Appendix D](#appendix-d-post-implementation-verification).** The claim "removes most
+> of this class of artefact" is wrong: with the per-slot import active, the same case still measured
+> +21.1% paired against -3.0% standalone. The fix removes one source, not the artefact. The
+> standalone check is the decision, not a second opinion.
 
 ### 7. Per-case noise bands, derived mechanically
 
@@ -851,3 +862,124 @@ Discarded experiments that produced knowledge worth keeping in `methodology.md` 
   regression. Both variants are in the log (experiments 11 to 13).
 - A compiled-selector cache: no effect, because compilation is minor next to matching. A
   reasonable idea that the profile did not support, which is why it was measured and not assumed.
+
+
+## Appendix D: post-implementation verification
+
+Commit `d6361a3` was tested against the data that produced this feedback: the linkedom campaign
+checkout, its 14 cases, and the experiment whose artefact motivated item 6. Procedure: copy
+`runtimes/node-ts/{ab,harness,guard,mem,profile,jitter,solo}.mts` over the campaign's `perf/`, run
+the guard, the probe, one A/B of experiment 1 (`8da81d9~1` against `8da81d9`, the lazy event
+listeners change), and `solo.mts` twice per revision on the case in question.
+
+### What holds
+
+- The guard passes unchanged on all 14 cases with the new runtime, so `setup`/`teardown` and the
+  per-slot import did not alter what the cases observe.
+- `jitter.mts`: `min 57.0 ms, p50 59.0 ms, max 79.5 ms, p50 is 3.5% above min`, exit 0, at load
+  average 3.1. The same probe reported 11.4% during the busy phase of the campaign. The threshold
+  separates the two states correctly.
+- The A/B numbers reproduce the campaign: `clone-deep` 3.32x (band -71.0..-68.8%), `bench-dom`
+  1.76x, `parse-shop` 1.21x, TOTAL -34.35%, GEOMEAN -19.97%. The campaign measured -34.8% and
+  -33.6% for the same pair with the previous estimator.
+- The two summaries behave as intended: TOTAL -34.35% against GEOMEAN -19.97% shows the effect is
+  concentrated, which is true for that change.
+- Bands are informative where the effect is real: 2.2 points wide on `clone-deep`, and the `?`
+  marker appears on exactly the cases the change does not touch (`query-scraper` -0.12%,
+  `serialize` -0.42%, `crawl` -3.37%).
+- `solo.mts` works against a materialised revision and needs no extra setup.
+
+### Correction 1: the `?slot=` fix does not remove the artefact (item 6)
+
+The commit message says the defect is fixed at the source. On the case that produced the item, the
+artefact is unchanged in size:
+
+| measurement | old revision | new revision | delta |
+|---|---|---|---|
+| paired A/B, before the fix (campaign, two runs) | | | **+25.0%, +29.3%** |
+| paired A/B, after the fix (this verification) | 11.90 ms | 14.41 ms | **+21.1%** |
+| `solo.mts`, run 1 | 12.06 ms | 11.70 ms | -3.0% |
+| `solo.mts`, run 2 | 12.30 ms | 11.88 ms | -3.4% |
+
+The case is `query-simple` (`querySelectorAll('div')`, `getElementsByTagName('p')`,
+`getElementsByClassName`), which the change does not touch. Standalone, the "regressed" revision is
+about 3% faster; paired, it is 21% slower, with the per-slot cases module active.
+
+So the polymorphism of the cases module was not the mechanism, or not the only one. The likely
+remaining cause is the shared heap rather than shared code: both revisions' documents are alive in
+one process, the two sides allocate them in sequence, and walk-heavy cases (this one, `crawl`,
+`text-content` showed it too during the campaign) are sensitive to that layout. That cannot be fixed
+by module identity.
+
+Suggested change, prose only:
+
+- `references/methodology.md`, "Two module instances in one process": keep both defences, but state
+  the measured outcome. The per-slot import removes one source; a campaign still measured a 21%
+  per-case artefact with it active, against -3% standalone. Standalone confirmation is therefore not
+  a second opinion, it is the decision.
+- The response to item 6 in this file, and the commit message wording "fixed at the source": downgrade
+  to "reduced at one source". The section title could name the mechanism more broadly, for example
+  "Two revisions in one process", since the heap is shared even when no code is.
+
+**Response (skill author): the correction is right and my claim was wrong.** Falsifying it against the
+case that produced the item, with the fix active, is the only way this could have been settled, and
+-3.0% standalone against +21.1% paired settles it. Applied as suggested: the section is now "Two
+revisions in one process" and names the shared heap as the remaining mechanism; the per-slot import is
+described as removing one source, with your measured numbers quoted so nobody re-derives the claim; and
+the rule is no longer "confirm if unsure" but "a per-case delta on code the change did not touch is not
+a result until a standalone run agrees with it". The `?slot=` import stays, because it costs one
+compile and removes a real source, but it now carries the duplication caveat from your minor note. The
+pushed commit message cannot be edited; the correction lives here and in `methodology.md`, which is
+what a future campaign reads.
+
+### Correction 2: the band does not flag the artefact, but its width would
+
+`query-simple` printed `+21.07%` with a band of `+0.1..+58.4%`. The band does not contain 0%, so no
+`?` appears and the row reads as a solid regression. What is abnormal is the width of the band
+against the size of the median:
+
+| case | median | band width (points) | width / abs(median) | verdict |
+|---|---|---|---|---|
+| clone-deep | -69.89% | 2.2 | 0.03 | real |
+| extract-products | -15.53% | 3.6 | 0.23 | real |
+| bench-dom | -43.32% | 7.5 | 0.17 | real |
+| extract-pages | -20.83% | 21.6 | 1.04 | real |
+| text-content | -16.84% | 32.5 | 1.93 | real |
+| query-simple | +21.07% | 58.3 | **2.77** | **artefact** |
+| query-first | -9.23% | 28.3 | **3.07** | noise |
+
+A second marker on that ratio (for example `~` when the interquartile width exceeds about twice the
+absolute median) points at exactly the rows that need `solo.mts`, and leaves the real effects alone.
+The `?` marker stays as it is: it answers a different question (does the sign flip at all).
+
+Caveat that belongs next to it: one machine, one campaign, 14 cases. It should ship as a hint that
+triggers a standalone check, never as a gate that discards a change on its own.
+
+**Response: approved and shipped, with your caveat attached.** `ab.mts` and `ab_cmd.py` now print `~`
+when the interquartile width exceeds twice the absolute median, next to the existing `?`, and the
+legend says both are hints to run `solo.mts`. Your threshold separates your data cleanly, and it also
+holds on data it was not derived from: re-measured on the zod campaign's error-path branch, the two
+real effects (-34.6% and -32.1%) stay unmarked at widths of 0.08 and 0.18 of their medians, while a
+case at -1.54% with a band of -5.7..-0.2% (3.6x its median) is marked. The threshold is documented as a
+heuristic from one machine and one campaign, never as a gate.
+
+### Minor notes
+
+- **Per-slot modules duplicate module-level data.** The linkedom cases file holds 13 MB of fixture
+  strings at module scope, so each child now carries 26 MB. Worth one line in `cases.example.mts`
+  next to the existing advice: module-level inputs exist once per side, so large ones belong in
+  `setup`.
+- **`profile.mts` calls `setup` but never `teardown`.** Harmless, since the process exits, but it is
+  the only one of the four scripts that does not pair them.
+- **`generic/ab_cmd.py` skips a case when its B time is 0** (`if ns_b:`). Only reachable with a
+  zero-duration case, so cosmetic.
+- **`cases.example.mts` uses `FIXTURES` before its `const` declaration** at the bottom of the file.
+  It works, because `buildCases` runs after module initialisation, but it reads as a mistake.
+
+**Response: all four fixed.** `profile.mts` now calls `teardown` after the profiler stops.
+`ab_cmd.py` uses `is not None` and skips only a zero-duration A side. The example imports `FIXTURES`
+from a new `fixtures.example.mts` instead of declaring it after use, which also answers the first
+note properly: a module without the `?slot=` query is shared between the two sides, so large read-only
+inputs belong there and exist once, while anything built from them belongs in `setup` and exists only
+while its case runs. That is a better answer than "put the 13 MB in `setup`", which would have paid
+the duplication on every case instead of once.

@@ -13,6 +13,13 @@
  *   whole run exist twice, once per revision, and make every later collection slower on both sides.
  */
 import { type PerfCase, rng } from "./harness.mts";
+/**
+ * Large read-only inputs belong in a module of their own. The cases module is loaded once per
+ * revision, so anything at its top level exists twice in the child process, while a separate module
+ * without the `?slot=` query is shared. Inputs that a case builds (parsed documents, instances)
+ * belong in `setup` instead, whatever their size.
+ */
+import { FIXTURES } from "./fixtures.mts";
 
 export function buildCases(lib: any): Array<PerfCase> {
   const cases: Array<PerfCase> = [];
@@ -86,6 +93,3 @@ export function buildCases(lib: any): Array<PerfCase> {
 
   return cases;
 }
-
-/** Replace with the real fixtures: generated deterministically, or read from `perf/fixtures/`. */
-const FIXTURES: Array<string> = [];

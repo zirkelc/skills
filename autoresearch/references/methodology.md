@@ -7,7 +7,7 @@ Why the harness is built the way it is, and how to read and report its numbers.
 - Why paired measurement
 - Why the minimum, and when it fails
 - Load-order bias
-- Two module instances in one process
+- Two revisions in one process
 - Why not use the repo's own benchmark as the instrument
 - Noise floor and keep bar
 - Reading the numbers: run 1, run 2, speed-up
@@ -45,14 +45,18 @@ ratio = sqrt((b1 / a1) * (a2 / b2))
 
 where run 1 loads A first and run 2 loads B first. Without this, every change "wins" or "loses" by the bias.
 
-## Two module instances in one process
+## Two revisions in one process
 
-In-process pairing is what makes the method precise, and it has one artefact of its own. Both revisions live in the same process, so any code they share sees objects of two different shapes. Shared code then runs polymorphic, and a case can report a large, stable, repeatable delta although neither revision touched the code it exercises. In one campaign a selector case reported +25% and +29% in two runs; profiles of both revisions were identical, and timing it standalone showed it equal or faster.
+In-process pairing is what makes the method precise, and it has an artefact of its own. Both revisions live in one process: they share the heap, and any code they share sees objects of two different shapes. A case can then report a large, stable, repeatable delta although neither revision touched the code it exercises. In one campaign a selector case reported +25% and +29% in two runs; profiles of both revisions were identical, and timing it standalone showed it equal or faster.
 
-Two defences, both needed:
+Do not expect to engineer this away. The harness gives each side its own instance of the cases module, which removes one source (the case bodies stay monomorphic per side), and that is worth having. It is not sufficient: the same campaign re-measured the same case with the per-slot import active and still saw +21.1% paired against -3.0% standalone. The remaining mechanism is the shared heap, not shared code, and no module identity can separate that.
 
-- The harness gives each side its own instance of the cases module, so at least the case bodies stay monomorphic per side. The library's own objects cannot be separated this way.
-- Before you report, act on, or discard for a per-case regression, confirm it standalone: one revision per process (`solo.mts` in the node-ts runtime). If the standalone numbers are equal, the delta is an artefact of the instrument and belongs in the PR body as such, because a reviewer who runs the harness will see it too.
+So the rule is not "confirm if you are unsure", it is: **a per-case delta on code the change did not touch is not a result until a standalone run agrees with it.** Run one revision per process (`solo.mts` in the node-ts runtime) before you report it, act on it, or discard a change because of it. When the standalone numbers disagree with the paired ones, the row is an artefact of the instrument and belongs in the PR body as such, because a reviewer who runs the harness will see the same line.
+
+Two shapes in the output point at such a row, and both are hints, not verdicts:
+
+- The band contains 0% (`?`): the iterations disagree about the direction.
+- The band is wide against its own median (`~`): the campaign that found this artefact measured a width of 2.8 times the median on the artefact row and 3.1 times on a noise row, against 0.03 to 0.23 on the real effects, with two real but noisy cases in between at 1.0 and 1.9. A threshold of twice the median separates them usefully on that data, which is one machine and fourteen cases: treat it as a reason to check, never as a gate.
 
 ## Why not use the repo's own benchmark as the instrument
 
