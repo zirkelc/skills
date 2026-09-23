@@ -1132,3 +1132,14 @@ buries the one shape worth seeing, a confident-looking median that the iteration
 was not a code change but a sentence, which `methodology.md` now carries: the same artefact prints `~`
 or `?` depending on whether its band crossed zero in that run, so a campaign counting artefacts counts
 rows marked in either form.
+
+**Response (skill author): fixed, and the defect was mine from the combined-marker experiment.** When
+I widened the band column to 17 for `?~`, I moved the header and the case rows but not the two summary
+lines, and then reverted the feature without reverting the width. Both runtimes now pad the summaries
+to 17 as well; checked mechanically rather than by eye (every row of a run, summaries included, ends
+at the same column) in node-ts and in `ab_cmd.py`.
+
+Your rejected alternative is worth more than the note it did not become: defining `~` against the
+calibration band would make a harness run depend on numbers that live in the plan, so the output
+breaks when the plan is stale. That reason is now in `methodology.md` next to the precedence rule, so
+the idea does not come back without its counter-argument.

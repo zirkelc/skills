@@ -214,7 +214,6 @@ if (values.child) {
     sumA += a;
     sumB += a * ratio;
     const band = `${lo >= 0 ? "+" : ""}${lo.toFixed(1)}..${hi >= 0 ? "+" : ""}${hi.toFixed(1)}%${marker}`;
-    /** One column wider than the widest band, so a row carrying both markers still lines up. */
     console.log(`${ab.name.padEnd(26)}${ms(a)}${ms(a * ratio)} ${pct(ratio)}${band.padStart(17)}${speedup(ratio)}`);
   }
 
@@ -222,8 +221,8 @@ if (values.child) {
    * disagreement means the effect is concentrated in one case and needs a per-case look. */
   const totalRatio = sumB / sumA;
   const geo = Math.exp(logSum / orderAB.length);
-  console.log(`${"TOTAL".padEnd(26)}${ms(sumA)}${ms(sumA * totalRatio)} ${pct(totalRatio)}${"".padStart(16)}${speedup(totalRatio)}`);
-  console.log(`${"GEOMEAN".padEnd(46)} ${pct(geo)}${"".padStart(16)}${speedup(geo)}`);
+  console.log(`${"TOTAL".padEnd(26)}${ms(sumA)}${ms(sumA * totalRatio)} ${pct(totalRatio)}${"".padStart(17)}${speedup(totalRatio)}`);
+  console.log(`${"GEOMEAN".padEnd(46)} ${pct(geo)}${"".padStart(17)}${speedup(geo)}`);
   console.log(
     `(band = interquartile range of per-iteration deltas; "?" = this run does not confirm the direction; "~" = band wide against its median; either: confirm with a second run or solo.mts)`
   );

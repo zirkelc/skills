@@ -175,8 +175,8 @@ def main() -> None:
         print(f"{name:<26}{ms(a)}{ms(a * ratio)} {(ratio - 1) * 100:7.2f}%{band:>17} {1 / ratio:7.2f}x")
     total_ratio = total_b / total_a
     geo = math.exp(log_sum / len(names))
-    print(f"{'TOTAL':<26}{ms(total_a)}{ms(total_b)} {(total_ratio - 1) * 100:7.2f}%{'':>16} {1 / total_ratio:7.2f}x")
-    print(f"{'GEOMEAN':<46} {(geo - 1) * 100:7.2f}%{'':>16} {1 / geo:7.2f}x")
+    print(f"{'TOTAL':<26}{ms(total_a)}{ms(total_b)} {(total_ratio - 1) * 100:7.2f}%{'':>17} {1 / total_ratio:7.2f}x")
+    print(f"{'GEOMEAN':<46} {(geo - 1) * 100:7.2f}%{'':>17} {1 / geo:7.2f}x")
     print('(band = interquartile range of per-iteration deltas; "?" = this run does not confirm the direction; "~" = band wide against its median; either: confirm with a second run)')
 
 
