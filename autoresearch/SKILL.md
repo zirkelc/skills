@@ -70,7 +70,7 @@ Comparing two separate benchmark runs does not work at the effect sizes of this 
 - Discard warm-up iterations before timing.
 - Print per-case numbers, a total, and a percentage delta.
 
-Copy the matching runtime folder into the repo (for example `perf/`) and adapt the documented extension points. If no runtime folder fits, use `runtimes/generic/`, or write a new runtime that meets the contract in `runtimes/README.md`.
+Copy the matching runtime folder into the repo (for example `perf/`) and adapt the documented extension points. If no folder fits the target runtime, write one against the contract in `runtimes/README.md`, which also describes the out-of-process pattern for runtimes that cannot load two revisions at once. Budget an hour for that, and treat the new harness itself as the first experiment: the canary and the control runs below decide whether it measures anything.
 
 Keep all harness scratch directories out of git. Prefer `.git/info/exclude` over `.gitignore`, so the exclusions do not leak into the commits that later become PRs.
 

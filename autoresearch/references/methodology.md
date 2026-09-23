@@ -21,7 +21,7 @@ Two separate executions of the same code get two independent draws of machine no
 The paired harness makes the noise common-mode. Both revisions are measured side by side, in strict alternation, so whatever the machine does in a given moment hits both sides almost equally and cancels in the ratio. This took the noise floor from hundreds of percent to about 1 to 2% on the suite total.
 
 - In runtimes that can load two copies of the code into one process (JavaScript module instances, JVM class loaders), measure both in one process.
-- In compiled or single-image runtimes, run the two built binaries alternately in ABBA order (`runtimes/generic/`). This is less tight than in-process pairing, but drift still cancels.
+- In compiled or single-image runtimes, build both revisions and run them alternately, A,B then B,A. This is less tight than in-process pairing, because process start-up and separate heaps add noise, but the drift still cancels and the estimator stays the same.
 
 ## Why the minimum, and when it fails
 
