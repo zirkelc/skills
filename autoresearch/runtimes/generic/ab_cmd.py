@@ -9,8 +9,10 @@ process (Rust, Go, C/C++, Python, JVM without class-loader isolation, ...).
 Each revision is unpacked with `git archive` into its own directory, built once
 (the build is cached per commit and slot, except for WORKTREE), and the two
 benchmark commands then run alternately: A,B on even iterations and B,A on odd
-ones, so slow machine drift hits both sides equally. The minimum per case is
-reported. Negative delta = REV_B is faster.
+ones, so both sides of one iteration share the same machine state. The delta is
+the median of the per-iteration ratios (the pairing survives that way, while a
+quotient of two independently drawn minima does not); the absolute numbers are
+the per-side minima. Negative delta = REV_B is faster.
 
 Output formats of the benchmark command (--format):
   wall  time the whole command as one case called "wall" (default)
@@ -122,27 +124,51 @@ def main() -> None:
 
     min_a: dict[str, float] = {}
     min_b: dict[str, float] = {}
+    ratios: dict[str, list[float]] = {}
     for i in range(args.iters):
         order = [("a", tree_a), ("b", tree_b)] if i % 2 == 0 else [("b", tree_b), ("a", tree_a)]
+        this_iter: dict[str, dict[str, float]] = {}
         for side, tree in order:
+            this_iter[side] = run_once(tree, args.workdir, args.run, args.format)
             target = min_a if side == "a" else min_b
-            for name, ns in run_once(tree, args.workdir, args.run, args.format).items():
+            for name, ns in this_iter[side].items():
                 target[name] = min(target.get(name, math.inf), ns)
+        for name, ns_a in this_iter["a"].items():
+            ns_b = this_iter["b"].get(name)
+            if ns_b:
+                ratios.setdefault(name, []).append(ns_b / ns_a)
 
     names = [n for n in min_a if n in min_b]
     if set(min_a) != set(min_b):
         print(f"warning: case sets differ, comparing {len(names)} shared cases", file=sys.stderr)
 
+    def quantile(values: list[float], q: float) -> float:
+        xs = sorted(values)
+        pos = (len(xs) - 1) * q
+        lo, hi = math.floor(pos), math.ceil(pos)
+        return xs[lo] if lo == hi else xs[lo] + (xs[hi] - xs[lo]) * (pos - lo)
+
     ms = lambda ns: f"{ns / 1e6:10.4f}"
-    print(f"A = {args.rev_a}, B = {args.rev_b} (min of {args.iters} alternating runs, ms)")
-    print(f"{'case':<26}{'A':>10}{'B':>10}{'delta':>9}{'speed':>9}")
+    print(f"A = {args.rev_a}, B = {args.rev_b} (min ms of {args.iters} alternating runs; delta = median of paired ratios)")
+    print(f"{'case':<26}{'A':>10}{'B':>10}{'delta':>9}{'band':>16}{'speed':>9}")
     total_a = total_b = 0.0
+    log_sum = 0.0
     for name in names:
         a, b = min_a[name], min_b[name]
+        ratio = quantile(ratios[name], 0.5)
+        lo = (quantile(ratios[name], 0.25) - 1) * 100
+        hi = (quantile(ratios[name], 0.75) - 1) * 100
+        straddles = "?" if lo < 0 < hi else " "
         total_a += a
-        total_b += b
-        print(f"{name:<26}{ms(a)}{ms(b)} {(b / a - 1) * 100:7.2f}% {a / b:7.2f}x")
-    print(f"{'TOTAL':<26}{ms(total_a)}{ms(total_b)} {(total_b / total_a - 1) * 100:7.2f}% {total_a / total_b:7.2f}x")
+        total_b += a * ratio
+        log_sum += math.log(ratio)
+        band = f"{lo:+.1f}..{hi:+.1f}%{straddles}"
+        print(f"{name:<26}{ms(a)}{ms(a * ratio)} {(ratio - 1) * 100:7.2f}%{band:>16} {1 / ratio:7.2f}x")
+    total_ratio = total_b / total_a
+    geo = math.exp(log_sum / len(names))
+    print(f"{'TOTAL':<26}{ms(total_a)}{ms(total_b)} {(total_ratio - 1) * 100:7.2f}%{'':>16} {1 / total_ratio:7.2f}x")
+    print(f"{'GEOMEAN':<46} {(geo - 1) * 100:7.2f}%{'':>16} {1 / geo:7.2f}x")
+    print('(band = interquartile range of per-iteration deltas; "?" = the band contains 0%, treat as no effect)')
 
 
 if __name__ == "__main__":

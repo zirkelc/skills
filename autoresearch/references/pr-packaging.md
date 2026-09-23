@@ -8,6 +8,8 @@ Group kept commits by theme (the path or mechanism they touch), not by the order
 
 Order the PRs by how easy they are to accept: the largest and least controversial first.
 
+Before you present the grouping, check it mechanically: the union of the groups must equal the list of kept commits. Print the difference if it is not empty. A grouping table that silently lists 7 of 8 kept commits looks complete to everyone reading it.
+
 Present the grouping to the user before you create branches.
 
 ## 2. Build one branch per group
@@ -27,7 +29,17 @@ Resolve conflicts so that each branch contains only its own group's code:
 - When a conflict hunk contains code from another group, keep only the part that belongs to this group.
 - Afterwards, grep each branch for symbols introduced by the other groups. The count must be zero.
 
-Install dependencies in each worktree and run the full test suite and the guard on each branch.
+Install dependencies, then regenerate every committed derived artifact (types, bundled output) and fold the result into the commit that causes it, rather than adding a "regenerate" commit on top. Only some branches will change generated files, and the campaign branch may never have built them at all.
+
+Then run the full test suite and the guard on each branch.
+
+The guard needs the harness, and the harness does not exist on a branch that starts from the base. Copy it in as untracked files instead of committing it:
+
+```sh
+git checkout <campaign-branch> -- perf && git reset -- perf
+```
+
+Remove those copies again before switching back to the campaign branch, which tracks the same paths. The A/B harness itself does not need this: it materialises both revisions with `git archive`, so it can compare any two revisions from the campaign checkout. Only what runs against the working tree (the guard, and any run while the PR branch is checked out) needs the copy.
 
 ## 3. Verify each branch alone
 
@@ -38,6 +50,8 @@ Run from the harness location (the campaign branch):
 
 Build the verification table from these runs, never from the campaign log: isolated effects differ from stacked ones.
 
+Where the stacked number differs materially from the isolated one, give both with the reason. This happens in both directions: a PR measured alone can look larger because it has the untouched path to itself, and a trade-off can look cheap alone but cost several percent once the other PRs removed the work that hid it. Two bodies of the same campaign must not state two different numbers for the same effect without explaining why.
+
 Optionally, run the repo's own benchmark on the base and on each branch as an external cross-check. Quote a figure only under the rules in `methodology.md` (elephants, or paired in-process references, with caveats stated).
 
 ## 4. Write the PR bodies
@@ -47,7 +61,8 @@ Use `templates/pr-body.md`. Every PR gets the same preamble (the campaign and it
 - **What this PR does**: one paragraph per commit. What was slow, why, and what changed. Point to existing patterns in the codebase that the change follows, and to prior art by the maintainers (unmerged branches, earlier PRs).
 - **Verification**: a table with run 1, run 2 and the speed-up versus base for the cases the PR targets, plus the suite total. Mark noisy cases as noise instead of claiming them.
 - **Observable surface**: everything a careful reviewer could notice: property descriptors, enumerability, own vs inherited properties, mutation semantics, new internal fields, error message timing. Name each one. A reviewer who finds an unlisted difference stops trusting the rest.
-- **Reproducing the numbers**: run instructions against the base, plus the harness scripts in collapsible `<details>` blocks. For upstream PRs, use the PR head ref: `git fetch origin pull/<N>/head:pr-<N>`.
+- **Reproducing the numbers**: run instructions against the base, plus the harness itself. Two ways, in order of preference. Push the campaign branch to a fork and link it at a **named commit** (a branch can be force-pushed or deleted, and the reviewer's reproduction then silently differs); that also exposes the plan and the log, so a reviewer can see the experiments that failed, which is the more convincing artifact. Inline the sources in `<details>` blocks only when no fork exists or the repo is private. Either way, keep the cases module inline: it defines what was measured, and that is the file a reviewer reads to judge whether the benchmark is honest. For upstream PRs, use the PR head ref: `git fetch origin pull/<N>/head:pr-<N>`.
+- **Instrument artefacts**: if a case shows a delta that standalone timing does not reproduce (see `methodology.md`), say so in the body. A reviewer who runs the harness will see the same line.
 - **Companion PRs**: links to the other PRs of the campaign. Add these only after all PRs exist, with their real numbers. Placeholder numbers such as `#1 #2` link to, and notify, the old issues 1 and 2 of the target repo.
 
 Also follow the repo's own PR conventions (templates, AGENTS.md or CLAUDE.md rules, tone). Write bodies to files and pass them with `--body-file`. Inline heredocs break backticks and template literals.

@@ -14,11 +14,21 @@ the guard. One full A/B run takes <N> s.>
 
 ## Calibration (identical code both sides, 3 runs, first cold run discarded)
 
-TOTAL deltas: <a>, <b>, <c>  → noise floor <x>%
-Noisy cases: <case: range>
+Machine probe: min <a> ms, p50 <b> ms, max <c> ms (<x>% above min) <- must be quiet to calibrate
 
-**Keep bar: TOTAL improvement >= <2x noise, min 1%>, confirmed by a second run.**
-Per-case rule: targeted case >= <5%> in both runs, TOTAL not regressing.
+TOTAL deltas: <a>, <b>, <c>      → noise floor <x>%
+GEOMEAN deltas: <a>, <b>, <c>    → noise floor <y>%
+
+Per-case bands from the same runs:
+
+| case | band | bar (2x band) |
+|---|---|---|
+| <case> | ±<x>% | <y>% |
+
+**Keep bar: one summary clears <2x noise, min 1%>, the other does not regress beyond its band,
+confirmed by a second run.** Per-case rule: targeted case clears its own bar in both runs.
+
+Budget: one A/B run takes <n> min; <k> experiments x 2.5 = about <h> h of measurement.
 
 ## Baseline
 

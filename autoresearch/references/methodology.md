@@ -5,8 +5,9 @@ Why the harness is built the way it is, and how to read and report its numbers.
 ## Contents
 
 - Why paired measurement
-- Why the minimum
+- Why the minimum, and when it fails
 - Load-order bias
+- Two module instances in one process
 - Why not use the repo's own benchmark as the instrument
 - Noise floor and keep bar
 - Reading the numbers: run 1, run 2, speed-up
@@ -22,11 +23,17 @@ The paired harness makes the noise common-mode. Both revisions are measured side
 - In runtimes that can load two copies of the code into one process (JavaScript module instances, JVM class loaders), measure both in one process.
 - In compiled or single-image runtimes, run the two built binaries alternately in ABBA order (`runtimes/generic/`). This is less tight than in-process pairing, but drift still cancels.
 
-## Why the minimum
+## Why the minimum, and when it fails
 
-The work is deterministic and CPU-bound. No source of noise can make it faster than its true cost; every source can only add time. The minimum over many iterations is therefore the best estimate of true cost. Means and medians absorb the noise instead.
+The work is deterministic and CPU-bound. No source of noise can make it faster than its true cost; every source can only add time. The minimum over many iterations is therefore the best estimate of **one side's** true cost, and that is what the harness reports as the absolute milliseconds.
 
-Scale each timed iteration so it runs for about 1 to 2 ms (repeat the case body N times, the same N for both sides). Very short iterations are dominated by timer resolution.
+The delta is a different question. A minimum per side is each side's best moment, and those two moments are not the same machine state: on a shared machine, or on a chip with performance and efficiency cores, one side can win the better core or the quieter second. Taking the quotient of two independently drawn minima throws away the pairing that the whole method rests on. Measured on an M5 with identical code on both sides, that quotient moved single cases by up to 24% and the suite total by 12%.
+
+So the delta comes from the pairing that already exists: A and B run back to back inside one iteration, so take their ratio per iteration and report the **median of those ratios**. Same data, same runs, one estimator that keeps what the design was built for. On the same machine and cases, the calibration moved from +12.07% to about ±1.8% on the total.
+
+Report the dispersion with it. The interquartile range of the per-iteration ratios says whether the iterations agree: a band that contains 0% means they disagree about the direction, and the case has no effect whatever its median says. A run that carries its own band needs no remembered noise number to be read.
+
+Scale each timed iteration so it runs for about 1 to 2 ms (repeat the case body N times, the same N for both sides). Very short iterations are dominated by timer resolution, and case bodies beyond roughly 50 ms contain a garbage collection almost by construction.
 
 ## Load-order bias
 
@@ -38,6 +45,15 @@ ratio = sqrt((b1 / a1) * (a2 / b2))
 
 where run 1 loads A first and run 2 loads B first. Without this, every change "wins" or "loses" by the bias.
 
+## Two module instances in one process
+
+In-process pairing is what makes the method precise, and it has one artefact of its own. Both revisions live in the same process, so any code they share sees objects of two different shapes. Shared code then runs polymorphic, and a case can report a large, stable, repeatable delta although neither revision touched the code it exercises. In one campaign a selector case reported +25% and +29% in two runs; profiles of both revisions were identical, and timing it standalone showed it equal or faster.
+
+Two defences, both needed:
+
+- The harness gives each side its own instance of the cases module, so at least the case bodies stay monomorphic per side. The library's own objects cannot be separated this way.
+- Before you report, act on, or discard for a per-case regression, confirm it standalone: one revision per process (`solo.mts` in the node-ts runtime). If the standalone numbers are equal, the delta is an artefact of the instrument and belongs in the PR body as such, because a reviewer who runs the harness will see it too.
+
 ## Why not use the repo's own benchmark as the instrument
 
 Existing benchmark suites usually answer a different question: "is this library faster than library X?" They import one version of the code per process, so they cannot compare two revisions of it in one execution. Using them for A/B would mean comparing two standalone runs, which is the failure mode above. They also often use unseeded random data, so the two sides would not see the same inputs, and the outputs cannot be hashed for a guard.
@@ -46,10 +62,13 @@ So: mirror their workloads (the maintainers' own idea of what is representative)
 
 ## Noise floor and keep bar
 
-- Noise floor: the largest absolute TOTAL delta over three runs with identical code on both sides (first cold run discarded).
-- Keep bar: about twice the noise floor, never below 1%. Both runs must clear it.
-- Per-case rule: a change aimed at one path may keep if that case clears about twice its own noise band (5% as a default) in both runs and the TOTAL does not regress.
-- Some cases are much noisier than others (allocation-heavy or GC-bound cases). Do not claim a result from a case whose two runs disagree, for example -10% and -0.3%. Show it as noise.
+- Measure the machine first. A calibration run on a busy machine measures the other work, not the code.
+- Noise floor: the largest absolute delta over three runs with identical code on both sides (first cold run discarded). Record it for **both** summary numbers.
+- Report two summaries: a **time-weighted total**, which answers "how much work disappeared", and an **equally weighted geometric mean**, which answers "did most cases improve". One case can easily be half the suite total and then decide every keep on its own.
+- Keep bar: about twice the noise floor, never below 1%. One of the two summaries must clear its bar and the other must not regress beyond its own noise band, in both runs.
+- A disagreement between the two is information, not a problem: TOTAL -6% with GEOMEAN +2% is the signature of one big case winning while many small cases lose. Look at the per-case lines before you record the decision.
+- Per-case rule: a change aimed at one path may keep if that case clears twice **its own** band, derived from the calibration runs, and the summaries do not regress. Do not use one global default: bands differ by a factor of three between large cases and short ones.
+- Do not claim a result from a case whose two runs disagree, for example -10% and -0.3%. Show it as noise.
 
 ## Reading the numbers: run 1, run 2, speed-up
 

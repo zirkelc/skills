@@ -4,7 +4,9 @@ Out-of-process A/B runner for any language with a benchmark command. Needs Pytho
 
 ## How it works
 
-`ab_cmd.py` unpacks each revision with `git archive` into `.perf-trees/<sha>-<slot>` (one directory per side), runs the build command once per tree (cached for committed revisions, rerun every time for the working tree), and then runs the two benchmark commands alternately: A,B on even iterations, B,A on odd ones. It keeps the minimum per case and prints per-case and total deltas and speed-ups.
+`ab_cmd.py` unpacks each revision with `git archive` into `.perf-trees/<sha>-<slot>` (one directory per side), runs the build command once per tree (cached for committed revisions, rerun every time for the working tree), and then runs the two benchmark commands alternately: A,B on even iterations, B,A on odd ones.
+
+Both sides of one iteration share the same machine state, so the delta is the median of their per-iteration ratios, printed with the interquartile band of those ratios; a band marked `?` contains 0% and means the case shows no effect. The absolute milliseconds are the per-side minima. Two summaries follow: TOTAL weights each case by its time, GEOMEAN weights every case equally.
 
 ## Commands
 

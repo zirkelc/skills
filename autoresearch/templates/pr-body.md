@@ -1,6 +1,6 @@
 > **Context: performance optimization campaign.** This is one of <N> PRs extracted from a systematic performance campaign on <area>, run as an automated research loop: <E> isolated experiments, <K> kept, <D> discarded. Every candidate change was
 >
-> - benchmarked with an A/B harness that <loads two git revisions of `<src>` into one process / runs builds of two git revisions alternately> and times <C> workloads in alternation, taking the minimum of <I> iterations. <If in-process: module instances carry a stable load-order bias of several percent, so the harness runs both load orders in separate child processes and combines them with a geometric mean.>
+> - benchmarked with an A/B harness that <loads two git revisions of `<src>` into one process / runs builds of two git revisions alternately> and times <C> workloads in strict alternation: A and B run back to back inside each iteration, and the delta is the median of their per-iteration ratios, so both sides always sample the same machine state. <If in-process: module instances carry a stable load-order bias of several percent, so the harness runs both load orders in separate child processes and combines them with a geometric mean.>
 > - measured on **<C> deterministic workloads mirroring `<existing bench dir>`** (<list>). The repo's own benchmarks <compare the library against other libraries / load one version per process> and cannot load two revisions into one execution, so using them for A/B would mean comparing two standalone runs, and run-to-run drift is larger than most effect sizes here. The mirrored cases use seeded data, so both revisions process identical inputs and the same workloads feed the characterisation guard below. The untouched `<existing bench dir>` suite served as an external cross-check.
 > - gated by a **calibrated noise floor** (~<x>% on the suite total, measured with identical code on both sides): changes under <bar>% total, or under <per-case>% on a targeted case, were discarded, and every keep required a second confirming run.
 > - verified behaviour-preserving by a **characterisation guard** (<what is hashed>) plus the full test suite (<T> tests), both green after every commit.
@@ -30,17 +30,14 @@
 <Install step. Where to save the harness files. Noise-control command. Measurement command
 against the PR head ref. How long a run takes and how to judge it.>
 
-<details>
-<summary><code><harness file></code></summary>
+<Preferred: link the campaign branch at a named commit, and say what it contains (harness, plan,
+experiment log with the discarded experiments). Inline the sources only when there is no fork or the
+repo is private. Keep the cases module inline either way: it defines what was measured.>
 
-```<lang>
-<harness source>
-```
-
-</details>
+Harness: <fork-url>/tree/<commit-sha>/perf (plan.md and experiments.tsv are in the same directory)
 
 <details>
-<summary><code><cases file></code></summary>
+<summary><code><cases file></code>, the workloads these numbers come from</summary>
 
 ```<lang>
 <cases source>

@@ -27,10 +27,11 @@ type Result = Record<string, number>;
 async function measure(entry: string): Promise<Result> {
   const gc = (globalThis as { gc?: () => void }).gc;
   if (!gc) throw new Error("Run the child with --expose-gc.");
-  const cases = (await loadCases(config, entry)).filter((c) => c.alloc);
+  const cases = (await loadCases(config, entry, "mem")).filter((c) => c.alloc);
   const out: Result = {};
   for (const c of cases) {
     const alloc = c.alloc!;
+    c.setup?.();
     /** Warm up lazily installed machinery so one-time costs are not counted per instance. */
     for (let i = 0; i < 1_000; i++) alloc();
     gc();
@@ -42,6 +43,7 @@ async function measure(entry: string): Promise<Result> {
     gc();
     out[c.name] = (process.memoryUsage().heapUsed - before) / COUNT;
     retained.length = 0;
+    c.teardown?.();
   }
   return out;
 }

@@ -17,7 +17,10 @@ const HARNESS_DIR = import.meta.dirname;
 const { config, positionals, values } = loadConfig(HARNESS_DIR, process.argv.slice(2), {
   seconds: { type: "string" },
   top: { type: "string" },
+  deps: { type: "boolean" },
 });
+/** Dependency frames matter when the library hands its hot loops to them (parser, selector engine). */
+const DEPS = Boolean(values.deps);
 const SECONDS = Number(values.seconds ?? 4);
 const TOP = Number(values.top ?? 30);
 
@@ -26,6 +29,7 @@ const only = positionals[0]?.split(",");
 const selected = only ? all.filter((c) => only.includes(c.name)) : all;
 if (selected.length === 0) throw new Error(`No case matches. Known: ${all.map((c) => c.name).join(", ")}`);
 
+for (const c of selected) c.setup?.();
 /** Warm up before sampling so the profile shows optimized code, not the interpreter. */
 for (const c of selected) for (let i = 0; i < 10; i++) c.run();
 
@@ -72,9 +76,13 @@ for (const [id, t] of selfTime) {
 const rootUrl = `file://${config.root}/`;
 function label(n: ProfileNode): string | null {
   const { url, functionName, lineNumber } = n.callFrame;
-  if (url.includes("node_modules") || url.startsWith("node:")) return null;
+  if (url.startsWith("node:") || (url.includes("node_modules") && !DEPS)) return null;
   if (!url && (!functionName || ["(program)", "(idle)", "(root)"].includes(functionName))) return null;
-  const file = url.startsWith(rootUrl) ? url.slice(rootUrl.length).replace(/^\.perf-trees\/[^/]+\//, "") : url;
+  const file = url.includes("node_modules/")
+    ? url.slice(url.lastIndexOf("node_modules/") + "node_modules/".length)
+    : url.startsWith(rootUrl)
+      ? url.slice(rootUrl.length).replace(/^\.perf-trees\/[^/]+\//, "")
+      : url;
   return `${functionName || "(anonymous)"} ${file}${file ? `:${lineNumber + 1}` : ""}`;
 }
 
@@ -96,5 +104,17 @@ function print(title: string, m: Map<string, number>): void {
   }
 }
 console.log(`profiled ${selected.map((c) => c.name).join(", ")} for ${SECONDS}s -> ${path.relative(config.root, outFile)}`);
+
+/** A library that hands its hot loops to a dependency spends most of its time in frames that are
+ * hidden by default, so say how much is hidden instead of letting it be found by luck. */
+if (!DEPS) {
+  let depTime = 0;
+  for (const n of nodes) {
+    if (n.callFrame.url.includes("node_modules")) depTime += selfTime.get(n.id) ?? 0;
+  }
+  const share = (depTime / grand) * 100;
+  if (share >= 1) console.log(`dependencies: ${share.toFixed(0)}% of samples are hidden, re-run with --deps to see them`);
+}
+
 print("self time", aggSelf);
 print("total time", aggTotal);

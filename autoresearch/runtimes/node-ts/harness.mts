@@ -18,6 +18,14 @@ export interface PerfCase {
   collect: () => unknown;
   /** Optional: create and return one retained instance, measured by the memory harness. */
   alloc?: () => unknown;
+  /**
+   * Optional: build the case's inputs just before it runs. Inputs of every case held alive for a
+   * whole run (twice, once per revision) make each collection slower and every timing noisier, so
+   * a case that needs large inputs should build them here and drop them in `teardown`.
+   */
+  setup?: () => void;
+  /** Optional: release what `setup` built. */
+  teardown?: () => void;
 }
 
 /** A cases module exports this function. It receives the module namespace of the entry point. */
@@ -119,10 +127,17 @@ function linkNodeModules(config: HarnessConfig, treeDir: string): void {
   }
 }
 
-/** Imports the entry module and builds the cases against it. */
-export async function loadCases(config: HarnessConfig, entryPath: string): Promise<Array<PerfCase>> {
+/**
+ * Imports the entry module and builds the cases against it.
+ *
+ * `slot` gives this side its own instance of the cases module. Without it both revisions share one
+ * instance, so every case function sees two hidden-class families and can report a large, stable
+ * delta for code that neither revision touched. See `references/methodology.md`.
+ */
+export async function loadCases(config: HarnessConfig, entryPath: string, slot?: string): Promise<Array<PerfCase>> {
   const lib = await import(pathToFileURL(entryPath).href);
-  const casesModule = await import(pathToFileURL(path.join(config.root, config.cases)).href);
+  const casesUrl = pathToFileURL(path.join(config.root, config.cases)).href;
+  const casesModule = await import(slot ? `${casesUrl}?slot=${slot}` : casesUrl);
   const build: BuildCases | undefined = casesModule.buildCases;
   if (typeof build !== "function") throw new Error(`${config.cases} must export buildCases(lib).`);
   return build(lib);

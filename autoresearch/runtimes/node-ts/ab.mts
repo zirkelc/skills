@@ -1,12 +1,14 @@
 /**
  * Paired A/B timing of two git revisions.
  *
- *   node --import tsx perf/ab.mts [revA=HEAD] [revB=WORKTREE] [--iters 25] [--repeats 2]
+ *   node --import tsx perf/ab.mts [revA=HEAD] [revB=WORKTREE] [--iters 25] [--repeats 1]
  *
- * Both revisions are imported into one process and timed in strict alternation, taking the
- * minimum per case. Module instances carry a stable load-order bias, so every measurement
- * runs in child processes for both load orders, and the orders are combined with a
- * geometric mean. Negative delta = revB is faster.
+ * Both revisions are imported into one process and timed in strict alternation. A and B run back to
+ * back inside one iteration, so they share the same machine state: the delta is the median of their
+ * per-iteration ratios, which keeps the pairing that makes this method work. The absolute
+ * milliseconds are the per-side minima. Module instances carry a stable load-order bias, so every
+ * measurement runs in child processes for both load orders, combined with a geometric mean.
+ * Negative delta = revB is faster.
  */
 import { spawnSync } from "node:child_process";
 import { fileURLToPath } from "node:url";
@@ -18,6 +20,11 @@ interface Row {
   first: number;
   /** Minimum ns per case body for the module loaded second. */
   second: number;
+  /** Median over iterations of (second / first), each pair timed back to back. */
+  ratio: number;
+  /** Ratio at the 25th and 75th percentile: how stable this case's delta is. */
+  p25: number;
+  p75: number;
 }
 
 const HARNESS_DIR = import.meta.dirname;
@@ -29,25 +36,39 @@ const { config, positionals, values } = loadConfig(HARNESS_DIR, process.argv.sli
   child: { type: "boolean" },
 });
 
+/** Tune ITERS and REPEATS in step 4, against this machine and the session's time budget. */
 const ITERS = Number(values.iters ?? 25);
-const WARMUP = Number(values.warmup ?? 4);
+const WARMUP = Number(values.warmup ?? 3);
 const TARGET_NS = Number(values["target-ms"] ?? 1.5) * 1_000_000;
-const REPEATS = Number(values.repeats ?? 2);
+const REPEATS = Number(values.repeats ?? 1);
+
+/** Children are spawned with `--expose-gc`; a missing flag degrades to a no-op. */
+const gc: () => void = (globalThis as { gc?: () => void }).gc ?? (() => {});
+
+function quantile(sorted: Array<number>, q: number): number {
+  const pos = (sorted.length - 1) * q;
+  const lo = Math.floor(pos);
+  const hi = Math.ceil(pos);
+  return lo === hi ? sorted[lo] : sorted[lo] + (sorted[hi] - sorted[lo]) * (pos - lo);
+}
 
 /** Runs inside a child process: times the two entries loaded in the given order. */
 async function measure(entryFirst: string, entrySecond: string): Promise<Array<Row>> {
-  const casesFirst = await loadCases(config, entryFirst);
-  const casesSecond = await loadCases(config, entrySecond);
+  const casesFirst = await loadCases(config, entryFirst, "first");
+  const casesSecond = await loadCases(config, entrySecond, "second");
   const rows: Array<Row> = [];
 
   for (let i = 0; i < casesFirst.length; i++) {
     const a: PerfCase = casesFirst[i];
     const b: PerfCase = casesSecond[i];
     if (a.name !== b.name) throw new Error(`Case order differs: ${a.name} vs ${b.name}`);
+    a.setup?.();
+    b.setup?.();
 
-    /** JIT warm-up on the raw bodies, then size each timed run to about TARGET_NS. */
+    /** JIT warm-up on the raw bodies, then size each timed run to about TARGET_NS. Slow bodies
+     * are already long enough after a few probes, so stop early instead of running ten of them. */
     let probe = Number.POSITIVE_INFINITY;
-    for (let w = 0; w < 10; w++) {
+    for (let w = 0; w < 10 && !(w >= 3 && probe > 20_000_000); w++) {
       probe = Math.min(probe, timeNs(a.run));
       b.run();
     }
@@ -63,18 +84,40 @@ async function measure(entryFirst: string, entrySecond: string): Promise<Array<R
       runA();
       runB();
     }
+
+    /** A collection triggered by one side's garbage must not land in the other side's timing, so
+     * collect before every timed body. Never inside one. */
+    const timeA = () => (gc(), timeNs(runA));
+    const timeB = () => (gc(), timeNs(runB));
+
     let minA = Number.POSITIVE_INFINITY;
     let minB = Number.POSITIVE_INFINITY;
+    const ratios: Array<number> = [];
     for (let iter = 0; iter < ITERS; iter++) {
+      let tA: number;
+      let tB: number;
       if (iter % 2 === 0) {
-        minA = Math.min(minA, timeNs(runA));
-        minB = Math.min(minB, timeNs(runB));
+        tA = timeA();
+        tB = timeB();
       } else {
-        minB = Math.min(minB, timeNs(runB));
-        minA = Math.min(minA, timeNs(runA));
+        tB = timeB();
+        tA = timeA();
       }
+      minA = Math.min(minA, tA);
+      minB = Math.min(minB, tB);
+      ratios.push(tB / tA);
     }
-    rows.push({ name: a.name, first: minA / reps, second: minB / reps });
+    ratios.sort((x, y) => x - y);
+    a.teardown?.();
+    b.teardown?.();
+    rows.push({
+      name: a.name,
+      first: minA / reps,
+      second: minB / reps,
+      ratio: quantile(ratios, 0.5),
+      p25: quantile(ratios, 0.25),
+      p75: quantile(ratios, 0.75),
+    });
   }
   return rows;
 }
@@ -84,7 +127,20 @@ function child(entryFirst: string, entrySecond: string): Array<Row> {
   const passthrough = ["--iters", String(ITERS), "--warmup", String(WARMUP), "--target-ms", String(TARGET_NS / 1_000_000)];
   const res = spawnSync(
     process.execPath,
-    [...process.execArgv, self, "--child", ...passthrough, "--entry", config.entry, "--cases", config.cases, ...config.src.flatMap((s) => ["--src", s]), entryFirst, entrySecond],
+    [
+      ...process.execArgv,
+      "--expose-gc",
+      self,
+      "--child",
+      ...passthrough,
+      "--entry",
+      config.entry,
+      "--cases",
+      config.cases,
+      ...config.src.flatMap((s) => ["--src", s]),
+      entryFirst,
+      entrySecond,
+    ],
     { encoding: "utf8", maxBuffer: 64 * 1024 * 1024, stdio: ["ignore", "pipe", "pipe"] }
   );
   if (res.status !== 0) throw new Error(`child failed:\n${res.stderr}`);
@@ -92,12 +148,17 @@ function child(entryFirst: string, entrySecond: string): Array<Row> {
   return JSON.parse(lines[lines.length - 1]);
 }
 
-/** Per-case minimum across repeated children of the same load order. */
-function minRows(runs: Array<Array<Row>>): Array<Row> {
+/** Combines repeated children of the same load order: minima for the absolute numbers, geometric
+ * mean for the ratios, widest band for the dispersion. */
+function combine(runs: Array<Array<Row>>): Array<Row> {
+  const geo = (xs: Array<number>) => Math.exp(xs.reduce((sum, x) => sum + Math.log(x), 0) / xs.length);
   return runs[0].map((row, i) => ({
     name: row.name,
     first: Math.min(...runs.map((r) => r[i].first)),
     second: Math.min(...runs.map((r) => r[i].second)),
+    ratio: geo(runs.map((r) => r[i].ratio)),
+    p25: Math.min(...runs.map((r) => r[i].p25)),
+    p75: Math.max(...runs.map((r) => r[i].p75)),
   }));
 }
 
@@ -111,32 +172,44 @@ if (values.child) {
   const entryB = materialise(config, revB, "b");
 
   /** orderAB: A loaded first. orderBA: B loaded first. */
-  const orderAB = minRows(Array.from({ length: REPEATS }, () => child(entryA, entryB)));
-  const orderBA = minRows(Array.from({ length: REPEATS }, () => child(entryB, entryA)));
+  const orderAB = combine(Array.from({ length: REPEATS }, () => child(entryA, entryB)));
+  const orderBA = combine(Array.from({ length: REPEATS }, () => child(entryB, entryA)));
 
   const ms = (ns: number) => (ns / 1_000_000).toFixed(4).padStart(10);
   const pct = (ratio: number) => `${((ratio - 1) * 100).toFixed(2).padStart(7)}%`;
   const speedup = (ratio: number) => `${(1 / ratio).toFixed(2).padStart(6)}x`;
 
-  console.log(`A = ${revA}, B = ${revB} (min of ${ITERS} iters, ${REPEATS} children x 2 load orders, ms)`);
-  console.log(`${"case".padEnd(26)}${"A".padStart(10)}${"B".padStart(10)}${"delta".padStart(9)}${"speed".padStart(8)}`);
+  console.log(
+    `A = ${revA}, B = ${revB} (min ms of ${ITERS} iters; delta = median of paired ratios; ${REPEATS} children x 2 load orders)`
+  );
+  console.log(`${"case".padEnd(26)}${"A".padStart(10)}${"B".padStart(10)}${"delta".padStart(9)}${"band".padStart(16)}${"speed".padStart(8)}`);
 
   let sumA = 0;
   let sumB = 0;
-  const totals = { abA: 0, abB: 0, baA: 0, baB: 0 };
+  let logSum = 0;
   for (let i = 0; i < orderAB.length; i++) {
     const ab = orderAB[i];
     const ba = orderBA[i];
-    const ratio = Math.sqrt((ab.second / ab.first) * (ba.first / ba.second));
+    /** orderAB measured B/A, orderBA measured A/B: the geometric mean cancels the load-order bias. */
+    const ratio = Math.sqrt(ab.ratio / ba.ratio);
+    /** Widest interquartile band of the two orders, expressed as a delta range. */
+    const lo = (Math.min(ab.p25, 1 / ba.p75) - 1) * 100;
+    const hi = (Math.max(ab.p75, 1 / ba.p25) - 1) * 100;
+    /** A band that contains 0% means the iterations disagree about the direction: no effect. */
+    const straddles = lo < 0 && hi > 0;
+    logSum += Math.log(ratio);
     const a = (ab.first + ba.second) / 2;
     sumA += a;
     sumB += a * ratio;
-    totals.abA += ab.first;
-    totals.abB += ab.second;
-    totals.baB += ba.first;
-    totals.baA += ba.second;
-    console.log(`${ab.name.padEnd(26)}${ms(a)}${ms(a * ratio)} ${pct(ratio)}${speedup(ratio)}`);
+    const band = `${lo >= 0 ? "+" : ""}${lo.toFixed(1)}..${hi >= 0 ? "+" : ""}${hi.toFixed(1)}%${straddles ? "?" : " "}`;
+    console.log(`${ab.name.padEnd(26)}${ms(a)}${ms(a * ratio)} ${pct(ratio)}${band.padStart(16)}${speedup(ratio)}`);
   }
-  const totalRatio = Math.sqrt((totals.abB / totals.abA) * (totals.baB / totals.baA));
-  console.log(`${"TOTAL".padEnd(26)}${ms(sumA)}${ms(sumA * totalRatio)} ${pct(totalRatio)}${speedup(totalRatio)}`);
+
+  /** TOTAL weights each case by its time, GEOMEAN weights every case equally. Gate on both: a
+   * disagreement means the effect is concentrated in one case and needs a per-case look. */
+  const totalRatio = sumB / sumA;
+  const geo = Math.exp(logSum / orderAB.length);
+  console.log(`${"TOTAL".padEnd(26)}${ms(sumA)}${ms(sumA * totalRatio)} ${pct(totalRatio)}${"".padStart(16)}${speedup(totalRatio)}`);
+  console.log(`${"GEOMEAN".padEnd(46)} ${pct(geo)}${"".padStart(16)}${speedup(geo)}`);
+  console.log(`(band = interquartile range of per-iteration deltas; "?" = the band contains 0%, treat as no effect)`);
 }
