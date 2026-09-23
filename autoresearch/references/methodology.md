@@ -33,6 +33,8 @@ So the delta comes from the pairing that already exists: A and B run back to bac
 
 Report the dispersion with it. The interquartile range of the per-iteration ratios says whether the iterations of **this run** agree: a band that contains 0% means they disagree about the direction, so this run does not confirm the row, whatever its median says. That is a statement about the run, not about the change. The verdict still comes from the rule the whole method rests on: two runs that agree. A case flagged in one run and clean in the other is a noisy case with a real effect; a case flagged in both is no effect.
 
+That last part is safe for short, noisy cases, which is not obvious: a 1 ms body has a wide band by construction, so it looks like a case the rule could kill. It cannot, because the marker and the per-case bar scale with the same quantity. A flag means the median is small against the band; the bar is twice the case's band from calibration. An effect small enough to stay flagged in two runs is therefore an effect the per-case rule would reject anyway, and the two rules cannot contradict each other. Measured: a 1 ms case with a real -41% effect stayed unflagged in both runs (band 0.7 times its median), while the untouched case beside it was flagged in both. The caveat is the assumption: if a case is suddenly far noisier than its calibration band, the machine changed under you, so re-run the probe instead of reading the row.
+
 Scale each timed iteration so it runs for about 1 to 2 ms (repeat the case body N times, the same N for both sides). Very short iterations are dominated by timer resolution, and case bodies beyond roughly 50 ms contain a garbage collection almost by construction.
 
 ## Load-order bias
@@ -57,6 +59,8 @@ Two shapes in the output point at such a row, and both are hints, not verdicts:
 
 - The band contains 0% (`?`): the iterations disagree about the direction.
 - The band is wide against its own median (`~`): the campaign that found this artefact measured a width of 2.8 times the median on the artefact row and 3.1 times on a noise row, against 0.03 to 0.23 on the real effects, with two real but noisy cases in between at 1.0 and 1.9. A threshold of twice the median separates them usefully on that data, which is one machine and fourteen cases: treat it as a reason to check, never as a gate.
+
+`?` takes precedence when both apply, so `~` marks only rows with a confident-looking median that the iterations do not support, which is the artefact's shape. The same artefact row can therefore print `~` in one run and `?` in another, depending on whether its band happened to cross zero. Nothing is lost for a decision, since both say "not confirmed", but a campaign counting how often the artefact appears has to count rows marked in either form.
 
 ## Why not use the repo's own benchmark as the instrument
 

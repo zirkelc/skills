@@ -182,7 +182,7 @@ if (values.child) {
   console.log(
     `A = ${revA}, B = ${revB} (min ms of ${ITERS} iters; delta = median of paired ratios; ${REPEATS} children x 2 load orders)`
   );
-  console.log(`${"case".padEnd(26)}${"A".padStart(10)}${"B".padStart(10)}${"delta".padStart(9)}${"band".padStart(16)}${"speed".padStart(8)}`);
+  console.log(`${"case".padEnd(26)}${"A".padStart(10)}${"B".padStart(10)}${"delta".padStart(9)}${"band".padStart(17)}${"speed".padStart(8)}`);
 
   let sumA = 0;
   let sumB = 0;
@@ -204,6 +204,9 @@ if (values.child) {
      */
     const straddles = lo < 0 && hi > 0;
     const medianPct = (ratio - 1) * 100;
+    /** `?` wins when both apply: a band around zero is wide against its own median almost by
+     * definition, so printing both would mark nearly every noise row. `~` alone is the signal that
+     * matters: a median that looks confident carried by iterations that do not agree. */
     const wide = !straddles && hi - lo > 2 * Math.abs(medianPct);
     const marker = straddles ? "?" : wide ? "~" : " ";
     logSum += Math.log(ratio);
@@ -211,7 +214,8 @@ if (values.child) {
     sumA += a;
     sumB += a * ratio;
     const band = `${lo >= 0 ? "+" : ""}${lo.toFixed(1)}..${hi >= 0 ? "+" : ""}${hi.toFixed(1)}%${marker}`;
-    console.log(`${ab.name.padEnd(26)}${ms(a)}${ms(a * ratio)} ${pct(ratio)}${band.padStart(16)}${speedup(ratio)}`);
+    /** One column wider than the widest band, so a row carrying both markers still lines up. */
+    console.log(`${ab.name.padEnd(26)}${ms(a)}${ms(a * ratio)} ${pct(ratio)}${band.padStart(17)}${speedup(ratio)}`);
   }
 
   /** TOTAL weights each case by its time, GEOMEAN weights every case equally. Gate on both: a
@@ -221,6 +225,6 @@ if (values.child) {
   console.log(`${"TOTAL".padEnd(26)}${ms(sumA)}${ms(sumA * totalRatio)} ${pct(totalRatio)}${"".padStart(16)}${speedup(totalRatio)}`);
   console.log(`${"GEOMEAN".padEnd(46)} ${pct(geo)}${"".padStart(16)}${speedup(geo)}`);
   console.log(
-    `(band = interquartile range of per-iteration deltas; "?" = this run does not confirm the direction; "~" = band wide against its median; both: confirm with a second run or solo.mts)`
+    `(band = interquartile range of per-iteration deltas; "?" = this run does not confirm the direction; "~" = band wide against its median; either: confirm with a second run or solo.mts)`
   );
 }

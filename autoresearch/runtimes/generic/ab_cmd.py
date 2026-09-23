@@ -150,7 +150,7 @@ def main() -> None:
 
     ms = lambda ns: f"{ns / 1e6:10.4f}"
     print(f"A = {args.rev_a}, B = {args.rev_b} (min ms of {args.iters} alternating runs; delta = median of paired ratios)")
-    print(f"{'case':<26}{'A':>10}{'B':>10}{'delta':>9}{'band':>16}{'speed':>9}")
+    print(f"{'case':<26}{'A':>10}{'B':>10}{'delta':>9}{'band':>17}{'speed':>9}")
     total_a = total_b = 0.0
     log_sum = 0.0
     for name in names:
@@ -159,22 +159,25 @@ def main() -> None:
         lo = (quantile(ratios[name], 0.25) - 1) * 100
         hi = (quantile(ratios[name], 0.75) - 1) * 100
         median_pct = (ratio - 1) * 100
+        # "?": the iterations disagree, so this run does not confirm the direction. "~": wide
+        # against its own median, which is what an artefact looks like. "?" wins when both apply: a
+        # band around zero is wide against its own median almost by definition.
         if lo < 0 < hi:
-            marker = "?"  # the iterations disagree: this run does not confirm the direction
+            marker = "?"
         elif hi - lo > 2 * abs(median_pct):
-            marker = "~"  # wide against its own median: confirm the case standalone
+            marker = "~"
         else:
             marker = " "
         total_a += a
         total_b += a * ratio
         log_sum += math.log(ratio)
         band = f"{lo:+.1f}..{hi:+.1f}%{marker}"
-        print(f"{name:<26}{ms(a)}{ms(a * ratio)} {(ratio - 1) * 100:7.2f}%{band:>16} {1 / ratio:7.2f}x")
+        print(f"{name:<26}{ms(a)}{ms(a * ratio)} {(ratio - 1) * 100:7.2f}%{band:>17} {1 / ratio:7.2f}x")
     total_ratio = total_b / total_a
     geo = math.exp(log_sum / len(names))
     print(f"{'TOTAL':<26}{ms(total_a)}{ms(total_b)} {(total_ratio - 1) * 100:7.2f}%{'':>16} {1 / total_ratio:7.2f}x")
     print(f"{'GEOMEAN':<46} {(geo - 1) * 100:7.2f}%{'':>16} {1 / geo:7.2f}x")
-    print('(band = interquartile range of per-iteration deltas; "?" = this run does not confirm the direction; "~" = band wide against its median; both: confirm with a second run)')
+    print('(band = interquartile range of per-iteration deltas; "?" = this run does not confirm the direction; "~" = band wide against its median; either: confirm with a second run)')
 
 
 if __name__ == "__main__":

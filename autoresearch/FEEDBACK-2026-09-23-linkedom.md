@@ -64,6 +64,7 @@ strong. See [Appendix E](#appendix-e-verification-of-the-corrections).
 - [Appendix C: evidence](#appendix-c-evidence)
 - [Appendix D: post-implementation verification](#appendix-d-post-implementation-verification)
 - [Appendix E: verification of the corrections](#appendix-e-verification-of-the-corrections)
+- [Appendix F: verification of the resolution rule](#appendix-f-verification-of-the-resolution-rule)
 
 | # | Item | Target file | Cost when missing | Verdict |
 |---|---|---|---|---|
@@ -1064,3 +1065,70 @@ other's code. `fixtures.example.mts` now carries it as a prohibition with the co
 ("never import the library under test here ... that mistake invalidates a whole campaign and nothing
 in the output shows it"), and `cases.example.mts` repeats it where the sharing is explained, since
 that is where someone decides what to move out of the cases module.
+
+
+## Appendix F: verification of the resolution rule
+
+Commit `1a4d8e1` replaced the marker verdict with a resolution rule: a row marked in both runs is no
+effect, a row marked once and clean once is a noisy case with a real effect. The rule was tested
+against the campaign case most likely to break it.
+
+### The hypothesis
+
+The rule could fail on a short case with a real effect: a 1 ms body has a wide band by construction,
+so it might be marked in both runs and then be declared dead although the effect is real. Experiment
+9 of the campaign has exactly that shape. Its targeted case is `text-content` (about 1 ms), it was
+kept on the per-case rule, and its change (concatenating text instead of joining arrays) is one of
+the four commits of PR #337.
+
+### The measurement
+
+`70ecb12~1` against `70ecb12`, twice, with the marker logic of `1a4d8e1`:
+
+| run | delta | band | width | width / abs(median) | marker |
+|---|---|---|---|---|---|
+| 1 | -40.62% | -52.5..-23.8% | 28.7 | 0.71 | none |
+| 2 | -41.70% | -60.7..-33.0% | 27.7 | 0.66 | none |
+| 1 (`serialize`, untouched) | -0.27% | -3.4..+4.3% | 7.7 | 28 | `?` |
+| 2 (`serialize`, untouched) | -0.50% | -9.0..+5.7% | 14.7 | 29 | `?` |
+
+The hypothesis does not hold. The band of a short case is wide in absolute terms and narrow against
+a 41% median, so neither marker fires, while the untouched case next to it is marked in both runs
+and is correctly no effect.
+
+### Why the rule is safe, and worth stating
+
+The reason is not obvious from the rule itself: both the marker and the per-case bar scale with the
+same quantity. A case whose band is wide enough to be marked in two runs needs a correspondingly
+large effect to clear its own band-derived bar from step 4. An effect small enough to stay marked in
+both runs is therefore an effect that the per-case rule would reject anyway. The two rules cannot
+contradict each other, and that is what makes "marked twice is no effect" safe for short cases.
+
+One sentence in `references/methodology.md`, next to the resolution rule, would record this. It is
+the argument a future campaign needs when a real but noisy case is marked twice and somebody has to
+decide whether the rule or the case is wrong.
+
+### Residual note
+
+`?` takes precedence over `~`, so a row that both straddles zero and is wide against its median
+prints only `?`. For a decision that is right, since both markers mean "confirm before you believe
+it". It only matters if a campaign ever counts how often the in-process artefact appears: the `~`
+counter undercounts, as the same artefact row showed in Appendix D (`~`) and Appendix E (`?`).
+
+**Response (skill author): the safety argument is in, the precedence change is not, and the second one
+I tried your way first.** Testing the rule against the case most likely to break it is exactly the
+check I could not do from here, and the arithmetic holds independently: `~` fires when the median is
+below half the band width, the per-case bar is twice the case's calibration band, so a row flagged in
+two runs sits below its own bar by construction. That argument is now in `methodology.md` next to the
+resolution rule, with your -41% short case as the measurement and one caveat: it assumes the run's
+dispersion is comparable to calibration, and a case far noisier than its band means the machine
+changed, not the code.
+
+On the residual note I implemented combined markers (`?~`) and then reverted them, because the output
+showed the idea does not survive contact: 9 of 11 rows printed `?~`, since a band around zero is wide
+against its near-zero median almost by definition. That destroys the count in the other direction and
+buries the one shape worth seeing, a confident-looking median that the iterations do not support
+(`number-parse -6.04%`, band `-25.7..-0.3%`, `~` alone). Precedence stays. What the undercount needed
+was not a code change but a sentence, which `methodology.md` now carries: the same artefact prints `~`
+or `?` depending on whether its band crossed zero in that run, so a campaign counting artefacts counts
+rows marked in either form.
