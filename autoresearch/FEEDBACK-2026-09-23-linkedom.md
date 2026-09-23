@@ -49,7 +49,9 @@ Order of implementation, by what a future campaign loses without it: 1, 8, 6, 3,
 **Post-implementation verification (campaign author, after commit d6361a3):** the implementation was
 re-run against the original campaign data. One claim does not hold (item 6, the `?slot=` fix) and the
 new dispersion band does not catch the case it was meant to help with. Details, numbers and two
-suggested corrections: [Appendix D](#appendix-d-post-implementation-verification).
+suggested corrections: [Appendix D](#appendix-d-post-implementation-verification). Both corrections were applied in
+`54bc17c` and re-tested on the same data: the markers work, and one verdict attached to them is too
+strong. See [Appendix E](#appendix-e-verification-of-the-corrections).
 
 ## Contents
 
@@ -61,6 +63,7 @@ suggested corrections: [Appendix D](#appendix-d-post-implementation-verification
 - [Appendix B: new files](#appendix-b-new-files)
 - [Appendix C: evidence](#appendix-c-evidence)
 - [Appendix D: post-implementation verification](#appendix-d-post-implementation-verification)
+- [Appendix E: verification of the corrections](#appendix-e-verification-of-the-corrections)
 
 | # | Item | Target file | Cost when missing | Verdict |
 |---|---|---|---|---|
@@ -983,3 +986,81 @@ note properly: a module without the `?slot=` query is shared between the two sid
 inputs belong there and exist once, while anything built from them belongs in `setup` and exists only
 while its case runs. That is a better answer than "put the 13 MB in `setup`", which would have paid
 the duplication on every case instead of once.
+
+
+## Appendix E: verification of the corrections
+
+Commit `54bc17c` was tested the same way as `d6361a3`: the node-ts runtime copied over the linkedom
+campaign's `perf/`, the probe, and one A/B of the same pair (`8da81d9~1` against `8da81d9`).
+
+### What holds
+
+Both markers do their job. Across the two verification runs of the same revision pair, the artefact
+row was flagged once by each marker, and no real effect was flagged at all:
+
+| row | run of Appendix D | this run | real? |
+|---|---|---|---|
+| query-simple | +21.07%, band `+0.1..+58.4%` -> `~` | +21.54%, band `-9.3..+53.1%` -> `?` | no, artefact |
+| clone-deep | -69.89%, band 2.2 points | -69.84%, band 5.5 points | yes |
+| bench-dom | -43.32%, band 7.5 points | -41.74%, band 3.8 points | yes |
+| extract-products | -15.53%, band 3.6 points | -15.59%, band 5.1 points | yes |
+
+`?` takes precedence over `~`, which is right: both mean "this row is not a result yet".
+
+`fixtures.example.mts` is the better answer to the 13 MB duplication than the one suggested in
+Appendix D. Sharing one copy of read-only inputs costs nothing and keeps `setup` for what a case
+builds.
+
+### The `?` verdict is too strong
+
+The README says a `?` band means "report no effect whatever the median says". This run:
+
+```
+parse-shop   25.4598   21.4776  -15.64%   -22.7..+4.7%?   1.19x
+```
+
+`parse-shop` is a real effect of that change. The same pair measured -19.2% and -19.2% in the
+isolated PR verification, -17.19% in the Appendix D run (band `-21.1..-11.1%`, no marker), and the
+repo's own benchmark shows parsing going from 767 ms to 227 ms. Read literally, the rule discards a
+1.24x parse win because one run's iterations were noisy.
+
+The marker itself is correct: in this run the iterations do disagree. What is wrong is the verdict
+attached to it, which overrules the two-run rule that the rest of the method rests on.
+
+Suggested wording, no code change:
+
+- `runtimes/node-ts/README.md`: `?` means *the iterations in this run disagree about the direction,
+  so this run does not confirm the row*. Confirm with the second run the method already requires, or
+  with `solo.mts`. Treat it as no effect only when both runs agree on the `?`.
+- `runtimes/generic/ab_cmd.py` and `ab.mts` legend lines: `"?" = contains 0%, no effect` has the same
+  problem in four words. `"?" = this run does not confirm the direction` says it without the verdict.
+- `references/methodology.md` already words it neutrally ("the iterations disagree about the
+  direction"), so only the two legends and the README line need the change.
+
+**Response (skill author): approved, and the fault is worse than you found.** You are right that the
+marker describes the run while the verdict belongs to the two-run rule, and `parse-shop` is the proof:
+a 1.24x parse win that my wording would have thrown away because one run's iterations were noisy. A
+marker that can overrule the method's own decision rule is not a hint, it is a bug in the method.
+
+Fixed in six places, two more than you listed: the two legends, the node-ts README, the generic README
+(same verdict, same four words), and `methodology.md`, which was not neutral after all. Its dispersion
+paragraph said "the case has no effect whatever its median says". It now says the band is a statement
+about the run, and spells out the resolution: flagged in both runs is no effect, flagged once and
+clean once is a noisy case with a real effect. `SKILL.md` carries the same rule in the loop, so the
+decision does not depend on someone reading the runtime README.
+
+### One safety rail for `fixtures.example.mts`
+
+Add a line: never import the library (the configured entry) in that module. It is shared across both
+slots by design, so an object built there would be created by one revision and then measured against
+the other, on every case that touches it. The current text ("keep it to plain inputs") implies it,
+but this is the single mistake that would silently invalidate a whole campaign, and it is one
+sentence to prevent.
+
+**Response: approved, and it earns stronger wording than one sentence.** It is the only mistake in
+this harness that produces plausible numbers with no symptom at all: the guard passes, both markers
+stay quiet, and every case that touches such an object measures one revision's objects against the
+other's code. `fixtures.example.mts` now carries it as a prohibition with the consequence attached
+("never import the library under test here ... that mistake invalidates a whole campaign and nothing
+in the output shows it"), and `cases.example.mts` repeats it where the sharing is explained, since
+that is where someone decides what to move out of the cases module.

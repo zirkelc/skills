@@ -196,10 +196,11 @@ if (values.child) {
     const lo = (Math.min(ab.p25, 1 / ba.p75) - 1) * 100;
     const hi = (Math.max(ab.p75, 1 / ba.p25) - 1) * 100;
     /**
-     * Two markers, two different questions. `?`: the band contains 0%, so the iterations disagree
-     * about the direction and the case shows no effect. `~`: the band is wide against the size of
-     * the median, which is the signature of an in-process artefact or of a case too short to time.
-     * Both are hints to run `solo.mts`, never a reason to discard on their own.
+     * Two markers, two different questions, both about this run and not about the change. `?`: the
+     * band contains 0%, so the iterations disagree about the direction and this run does not
+     * confirm the row. `~`: the band is wide against the size of the median, which is the signature
+     * of an in-process artefact or of a case too short to time. Both are hints to confirm (second
+     * run, or `solo.mts`), never a reason to discard on their own.
      */
     const straddles = lo < 0 && hi > 0;
     const medianPct = (ratio - 1) * 100;
@@ -220,6 +221,6 @@ if (values.child) {
   console.log(`${"TOTAL".padEnd(26)}${ms(sumA)}${ms(sumA * totalRatio)} ${pct(totalRatio)}${"".padStart(16)}${speedup(totalRatio)}`);
   console.log(`${"GEOMEAN".padEnd(46)} ${pct(geo)}${"".padStart(16)}${speedup(geo)}`);
   console.log(
-    `(band = interquartile range of per-iteration deltas; "?" = contains 0%, no effect; "~" = wide against its median, confirm with solo.mts)`
+    `(band = interquartile range of per-iteration deltas; "?" = this run does not confirm the direction; "~" = band wide against its median; both: confirm with a second run or solo.mts)`
   );
 }

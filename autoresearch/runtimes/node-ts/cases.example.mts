@@ -17,7 +17,8 @@ import { type PerfCase, rng } from "./harness.mts";
  * Large read-only inputs belong in a module of their own. The cases module is loaded once per
  * revision, so anything at its top level exists twice in the child process, while a separate module
  * without the `?slot=` query is shared. Inputs that a case builds (parsed documents, instances)
- * belong in `setup` instead, whatever their size.
+ * belong in `setup` instead, whatever their size. Never build anything from the library under test
+ * in a shared module: both revisions would measure objects built by one of them.
  */
 import { FIXTURES } from "./fixtures.mts";
 

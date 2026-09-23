@@ -31,7 +31,7 @@ The delta is a different question. A minimum per side is each side's best moment
 
 So the delta comes from the pairing that already exists: A and B run back to back inside one iteration, so take their ratio per iteration and report the **median of those ratios**. Same data, same runs, one estimator that keeps what the design was built for. On the same machine and cases, the calibration moved from +12.07% to about ±1.8% on the total.
 
-Report the dispersion with it. The interquartile range of the per-iteration ratios says whether the iterations agree: a band that contains 0% means they disagree about the direction, and the case has no effect whatever its median says. A run that carries its own band needs no remembered noise number to be read.
+Report the dispersion with it. The interquartile range of the per-iteration ratios says whether the iterations of **this run** agree: a band that contains 0% means they disagree about the direction, so this run does not confirm the row, whatever its median says. That is a statement about the run, not about the change. The verdict still comes from the rule the whole method rests on: two runs that agree. A case flagged in one run and clean in the other is a noisy case with a real effect; a case flagged in both is no effect.
 
 Scale each timed iteration so it runs for about 1 to 2 ms (repeat the case body N times, the same N for both sides). Very short iterations are dominated by timer resolution, and case bodies beyond roughly 50 ms contain a garbage collection almost by construction.
 

@@ -160,7 +160,7 @@ def main() -> None:
         hi = (quantile(ratios[name], 0.75) - 1) * 100
         median_pct = (ratio - 1) * 100
         if lo < 0 < hi:
-            marker = "?"  # the iterations disagree about the direction: no effect
+            marker = "?"  # the iterations disagree: this run does not confirm the direction
         elif hi - lo > 2 * abs(median_pct):
             marker = "~"  # wide against its own median: confirm the case standalone
         else:
@@ -174,7 +174,7 @@ def main() -> None:
     geo = math.exp(log_sum / len(names))
     print(f"{'TOTAL':<26}{ms(total_a)}{ms(total_b)} {(total_ratio - 1) * 100:7.2f}%{'':>16} {1 / total_ratio:7.2f}x")
     print(f"{'GEOMEAN':<46} {(geo - 1) * 100:7.2f}%{'':>16} {1 / geo:7.2f}x")
-    print('(band = interquartile range of per-iteration deltas; "?" = contains 0%, no effect; "~" = wide against its median, confirm standalone)')
+    print('(band = interquartile range of per-iteration deltas; "?" = this run does not confirm the direction; "~" = band wide against its median; both: confirm with a second run)')
 
 
 if __name__ == "__main__":

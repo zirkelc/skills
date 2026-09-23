@@ -7,6 +7,11 @@
  * them (parsed documents, instances) belongs in a case's `setup`, so it lives only while that case
  * runs.
  *
+ * Never import the library under test here. This module is shared by both revisions on purpose, so
+ * anything built from the library in it would be created by one revision and then measured against
+ * the other, in every case that touches it. That mistake invalidates a whole campaign and nothing in
+ * the output shows it. Plain data only: strings, buffers, numbers, plain objects.
+ *
  * Generate the inputs deterministically, or read files that `fetch-fixtures.sh` downloaded into
  * `perf/fixtures/` (untracked, with a manifest of URL, sha256 and date).
  */
