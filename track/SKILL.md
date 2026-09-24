@@ -1,49 +1,52 @@
 ---
 name: track
-description: "Track an upstream issue or pull request in a dependency or tool, by filing the context into a private issues repo: what was needed, where it bites, what the workaround costs, and a link back to the upstream thread. Also reviews what is outstanding, re-checks upstream state on demand, verifies a recorded workaround still exists in the code, and closes a tracker once the fix is adopted. Instructions are free-form with no keywords, e.g. \"track https://github.com/vitest-dev/vitest/issues/123\", \"what am I waiting on?\", \"did anything get fixed upstream?\", \"we dropped the dynalite workaround\". Use when the user hits a bug or missing feature in software they depend on and the reason they need it would otherwise be lost."
+description: "File a tracking issue for an upstream issue or pull request in a dependency or tool. The tracking issue goes into a private GitHub repository and records the requirement, the affected code, the workaround, and the upstream link. The skill also lists open tracking issues, checks the upstream state, checks that a recorded workaround is still in the code, and closes a tracking issue after the fix is adopted. Instructions are free text with no keywords, e.g. \"track https://github.com/vitest-dev/vitest/issues/123\", \"what am I waiting on?\", \"did anything get fixed upstream?\", \"we removed the dynalite workaround\". Use when the user finds a bug or a missing feature in software they depend on but do not control."
 argument-hint: "e.g. an upstream issue or PR url, 'what am I waiting on?', 'anything fixed?', 'done with the vitest one'"
 ---
 
 # Track
 
-Subscribing to an upstream issue records *that* you want it. It records nothing about
-**why** you wanted it or **where** you needed it, and a year later, when the fix finally
-lands, that is the only part that matters. This skill files the missing half into a
-private issues repository: the project that hit the limitation, the workaround that is
-now sitting in the code, and the grep that will come back empty once it can be deleted.
+An upstream subscription records that you want a fix. It does not record why you need the
+fix or which code needs it. When the fix is released, that information is necessary and
+usually lost.
 
-A daily workflow in that repository resolves every upstream link and labels the tracker
-when the conclusion changes, so the fix arrives as a notification rather than as
-something to remember to check.
+This skill records that information in a private GitHub repository, the store. Each
+tracking issue names the requirement, the affected files, the workaround, and the upstream
+issue or pull request.
 
-**Raise this yourself** when work is blocked or bent around a defect in a dependency and
-the session is about to move on. Do not just add a `// workaround for a vitest bug`
-comment and leave it: that comment cannot tell anyone when it stops being necessary.
+A daily workflow in the store checks the state of each upstream link. When the state
+changes, the workflow adds a label and a comment. Nobody has to check upstream manually.
 
-## The instruction is free-form
+**Use this skill on your own initiative** when a defect in a dependency blocks or changes
+the current work and the session moves on. A comment such as `// workaround for a vitest
+bug` is not sufficient. It does not record when the workaround can be removed.
 
-There are no subcommands and no required word order. Infer what is being asked from what
-the instruction describes, not from keywords it contains.
+## Instructions are free text
 
-## Step 1: Resolve the store
+There are no subcommands and no fixed word order. Identify the intent from the content of
+the instruction, not from keywords.
 
-The store is one private GitHub repository of tracking issues. Resolve it, never assume it:
+## Step 1: Find the store
+
+The store is one private GitHub repository that contains tracking issues. Find it with these
+commands. Do not assume its location:
 
 ```bash
 gh api user --jq .login                                 # <owner>
 gh repo view <owner>/issues --json name,isPrivate       # the default store
 ```
 
-`<owner>/issues` is the default. An explicit repository in the instruction outranks it.
+The default store is `<owner>/issues`. A repository named in the instruction overrides the
+default.
 
-**If it exists and is private**, continue. Confirming this is what licenses everything
-below: real paths, real repository names, real constraints, real reasons. Do not record
-credentials or tokens even so, because an issue body is not a secret store.
+**The store exists and is private:** continue. Because the store is private, tracking
+issues can contain real file paths, repository names, and constraints. Do not record
+credentials or tokens. An issue body is not a secret store.
 
-**If it exists and is public**, say so and stop. The whole point of the store is that it
-holds the context that cannot go upstream. Ask before writing anything into a public one.
+**The store exists and is public:** tell the user and stop. The store holds information
+that must not be public. Do not write into a public store without confirmation.
 
-**If it does not exist**, ask before creating it. Then:
+**The store does not exist:** ask the user before you create it. Then run:
 
 ```bash
 gh repo create <owner>/issues --private \
@@ -55,7 +58,8 @@ gh label create "upstream:moved"       -R <owner>/issues -c fbca04 -d "Upstream 
 gh label create "upstream:unreachable" -R <owner>/issues -c 5319e7 -d "The upstream link no longer resolves"
 ```
 
-Then push this skill's `templates/` directory, which is the store's entire contents:
+Then push the files in this skill's `templates/` directory. These files are the complete
+content of the store:
 
 ```
 templates/README.md                              -> README.md
@@ -64,101 +68,100 @@ templates/.github/workflows/upstream-check.yml   -> .github/workflows/upstream-c
 templates/.github/scripts/upstream-check.js      -> .github/scripts/upstream-check.js
 ```
 
-Copy all four. The workflow requires the script at that exact path, and checks out the
-repository to reach it.
+Copy all four files. The workflow checks out the repository and requires the script at this
+exact path.
 
-Re-running any of this is a no-op. Deleting the nine default labels a new repository ships
-with is optional tidying, not part of the setup.
+These commands are safe to run again. A new repository has nine default labels. They can be
+deleted, but this is optional.
 
-Mention the daily workflow once, when the repository is created, and not again: it costs
-about 31 billed minutes a month on a private repository, roughly one percent of a paid
-personal allowance.
+When you create the repository, tell the user once that the daily workflow uses
+approximately 31 billed Actions minutes per month on a private repository. This is
+approximately one percent of a paid personal plan. Do not repeat this later.
 
-## Step 2: Read what is already tracked
+## Step 2: Read the open tracking issues
 
-Always, before acting. Every intent except filing a brand-new tracker needs it, and filing
-needs it to avoid a duplicate.
+Do this before each action. Every intent uses this list. Filing uses it to prevent a
+duplicate.
 
 ```bash
 gh issue list -R <owner>/issues --state open --limit 50 \
   --json number,title,labels,updatedAt
 ```
 
-## Step 3: Infer the intent
+## Step 3: Identify the intent
 
-Classify by what the instruction describes. The user will not say "file", "list" or "close".
+Classify the instruction by its content. The user does not say "file", "list", or "close".
 
 | The instruction… | Intent | Example |
 |---|---|---|
 | names an upstream issue or PR, or a defect in a dependency | **File** | a github url, "vitest can't reset a spy's implementation" |
-| asks what is outstanding | **Review** | "what am I waiting on?", bare invocation |
-| asks whether anything has moved upstream | **Re-check** | "anything fixed?", "is that PR merged yet?" |
-| asks whether a workaround is still needed or still present | **Verify** | "do we still need the dynalite fork?" |
-| reports the fix adopted, or the workaround removed | **Close** | "we upgraded, the patch is gone" |
+| asks what is open | **Review** | "what am I waiting on?", no instruction at all |
+| asks whether the upstream state changed | **Re-check** | "anything fixed?", "is that PR merged yet?" |
+| asks whether a workaround is still needed or still in the code | **Verify** | "do we still need the dynalite fork?" |
+| reports that the fix is adopted or the workaround is removed | **Close** | "we upgraded, the patch is gone" |
 
-Three signals settle most ambiguity:
+Three rules resolve most unclear cases:
 
-- **A URL almost always means File**, unless the store already tracks it, in which case it
-  is a Re-check or an amendment of the existing tracker.
-- **Tense.** Future or present ("I need", "this is broken") files. Past ("we removed",
-  "that shipped") closes.
-- **Reference to something already tracked.** Match loosely: "the vitest one" should find
-  the tracker whose title starts `[vitest]`.
+- **A URL means File**, unless the store already tracks that URL. Then the intent is
+  Re-check, or an update of the existing tracking issue.
+- **Tense.** Present or future tense ("I need", "this is broken") means File. Past tense
+  ("we removed", "that shipped") means Close.
+- **A reference to an existing tracking issue.** Match loosely. "The vitest one" refers to
+  the tracking issue with the title prefix `[vitest]`.
 
-If genuinely ambiguous, ask **one** short question. A duplicate tracker and a wrongly
-closed one both cost more than asking.
+If the intent is not clear, ask one short question. A duplicate tracking issue or a wrong
+close costs more than a question.
 
 ## Step 4: Act
 
-### File a new tracker
+### File a tracking issue
 
-**Check for a duplicate first.** The upstream URL is the identity, and GitHub search
-tokenises it, so searching the full URL works:
+**Search for a duplicate first.** The upstream URL identifies the tracking issue. GitHub
+search indexes the URL, so search for the full URL:
 
 ```bash
 gh issue list -R <owner>/issues --state all --search "<upstream url>"
 ```
 
-An open match means amend that one rather than filing a second. A closed match means the
-problem came back, or a new instance of it: say which you think it is and ask.
+An open match: update that tracking issue. Do not file a second one. A closed match: the
+problem returned, or this is a new instance of it. Say which one you think applies and ask.
 
-**Read the upstream thread before writing.** State, labels, the last few comments, and
-whether a linked PR exists. A tracker that misstates what upstream is doing is worse than
-none, and `gh issue view <url> --comments` is cheap.
+**Read the upstream thread before you write.** Read the state, the labels, and the latest
+comments, and check for a linked pull request. Use `gh issue view <url> --comments`. A
+tracking issue that describes the upstream state incorrectly is worse than no tracking
+issue.
 
-**Title:** `[package] what I need`, where the package is what it is called when installed
-or invoked (`vitest`, `@sparticuz/chromium`, `release-please`), and the rest is the
-capability in the user's terms, not the maintainer's. Specific enough to recognise in a
-list a year from now.
+**Title:** `[package] <requirement>`. The package is the installed or invoked name
+(`vitest`, `@sparticuz/chromium`, `release-please`). The requirement is in the user's
+terms, not the maintainer's. The title must identify the issue in a list one year later.
 
-**Body:** follow `.github/ISSUE_TEMPLATE/tracker.md` in the store, which is the canonical
-form. Read it rather than reproducing it from memory, and strip its `<!-- -->` guidance
-when filling it in:
+**Body:** use `.github/ISSUE_TEMPLATE/tracker.md` in the store. This file is the only
+definition of the body format. Read the file. Do not write the format from memory. Remove
+the `<!-- -->` comments when you fill in the sections:
 
 ```bash
 gh api repos/<owner>/issues/contents/.github/ISSUE_TEMPLATE/tracker.md --jq .content | base64 -d
 ```
 
-Rules that matter more than the shape:
+Rules for the content:
 
-- **The Upstream section is machine-read.** The workflow resolves every GitHub issue or PR
-  link in that section and nowhere else. Put every link that would settle the question
-  there, and keep merely related threads in Notes so they do not vote.
-- **Where it bites is the whole point.** Absolute repository paths, exact `file.ts:line`,
-  and a grep pattern that returns nothing once the workaround is gone. This is what makes
-  the tracker checkable later instead of merely readable.
-- **Write it to be read cold.** The future session cannot see this conversation. No "the
-  file we just changed", no "as discussed". Name it.
-- **No invented facts.** An unknown version or an unclear root cause goes in as an open
-  question, never as a guess.
-- Drop a section rather than padding it. A tracker with no workaround yet is fine.
+- **The workflow reads the Upstream section.** It reads GitHub issue and pull request links
+  in this section only. Put each link that decides the outcome in this section. Put related
+  links in Notes, where they do not affect the result.
+- **The Affected code section makes the tracking issue checkable.** Record the absolute
+  repository path, the exact `file.ts:line`, and a grep pattern that returns no results
+  after the workaround is removed.
+- **Write for a reader without this conversation.** Do not write "the file we just changed"
+  or "as discussed". Name the file.
+- **Do not invent facts.** Record an unknown version or an unclear root cause as an open
+  question.
+- Remove a section that has no content. A tracking issue without a workaround is valid.
 
-**Never pass a label.** The `upstream:*` labels are derived from upstream state by the
-workflow. Setting one by hand states a conclusion that nothing verified, and the next run
-will overwrite it anyway.
+**Do not set a label.** The workflow sets the `upstream:*` labels from the upstream state.
+A label set by hand is not verified, and the next workflow run overwrites it.
 
-**Confirm before filing.** Print the title and the full body as it will appear, then ask.
-A clear yes is approval; a question about the wording is not.
+**Confirm before you file.** Show the title and the full body. Then ask. A clear yes is
+approval. A question about the wording is not approval.
 
 ```bash
 gh issue create -R <owner>/issues --title "<title>" --body-file - <<'EOF'
@@ -166,113 +169,114 @@ gh issue create -R <owner>/issues --title "<title>" --body-file - <<'EOF'
 EOF
 ```
 
-**Then vote upstream**, if the user asked for it or agrees:
+**Then add a reaction upstream**, if the user asked for it or agrees:
 
 ```bash
 gh api -X POST repos/<owner>/<repo>/issues/<n>/reactions -f content=+1
 ```
 
-A reaction is the one upstream signal that is both useful and silent. Do not post a "+1"
-comment: it notifies every subscriber and says nothing. Per-issue subscription has no API,
-so if the user wants the upstream notification too, give them the URL to click. Usually
-they do not need it, since this store is what replaces it.
+A reaction is a vote and does not notify subscribers. Do not post a "+1" comment. It
+notifies every subscriber and contains no information. There is no API to subscribe to a
+single issue. If the user wants upstream notifications, give them the URL. This is usually
+not necessary, because the store replaces the subscription.
 
-**Finally, anchor it in the code.** In the repository that is actually affected, put the
-tracker where the workaround is:
+**Then add a reference in the affected code.** In each affected repository, add a comment
+at the workaround:
 
 ```ts
-/** Workaround for vitest-dev/vitest#123, tracked in zirkelc/issues#7. Drop both when it lands. */
+/** Workaround for vitest-dev/vitest#123, tracked in zirkelc/issues#7. Remove both when the fix is adopted. */
 ```
 
-Add it at every site listed under *Where it bites*, and leave the edits uncommitted so they
-land with whatever change the user is already making.
+Add the comment at each location listed under Affected code. Do not commit the edits. The
+user commits them with their current change.
 
 ### Review
 
-Show what is outstanding, grouped by what it asks of the user, because that is the
-interesting half. The store's README defines what each label means; order the groups
-`upstream:fixed`, then `upstream:moved` and `upstream:declined`, then
-`upstream:unreachable`, then the unlabelled ones, which are merely still waiting.
+List the open tracking issues in groups. Order the groups: `upstream:fixed`, then
+`upstream:moved` and `upstream:declined`, then `upstream:unreachable`, then issues without a
+label. The store README defines each label. Issues without a label wait for upstream and need
+no action.
 
-One line each: number, title, label, how long since it moved. Do not list closed trackers;
-"what am I waiting on" is not a question about finished work.
+Show one line per issue: number, title, label, and time since the last update. Do not list
+closed tracking issues.
 
 ### Re-check
 
-The workflow already does this daily. Run it early only when asked, or when a tracker is
-about to be acted on:
+The workflow runs daily. Run it manually only when the user asks, or before you act on a
+tracking issue:
 
 ```bash
 gh workflow run upstream-check.yml -R <owner>/issues
 ```
 
-To answer about one tracker without waiting, resolve its links directly. A pull request is
-authoritative only via the pulls endpoint, since the issues endpoint does not guarantee the
-merged timestamp is present:
+To check one tracking issue immediately, query its links directly. For a pull request, use
+the pulls endpoint. The issues endpoint does not always include the merge timestamp:
 
 ```bash
 gh api repos/<owner>/<repo>/pulls/<n>  --jq '{state, merged, merged_at}'
 gh api repos/<owner>/<repo>/issues/<n> --jq '{state, state_reason, closed_at}'
 ```
 
-`state_reason` is `completed`, `not_planned`, `duplicate`, or null. **Null on a closed
-issue is common and legitimate** for older issues, so branch on `state` first and treat the
-reason as extra colour.
+`state_reason` is `completed`, `not_planned`, `duplicate`, or null. A closed issue with a
+null `state_reason` is common for older issues. Check `state` first. Use `state_reason` as
+additional information.
 
 ### Verify
 
-Check the tracker against reality rather than against its own text. For each open tracker,
-or the ones asked about:
+Compare the tracking issue with the code. For each open tracking issue, or for the issues
+the user names:
 
-1. Run the grep recorded under *Where it bites* in the repository it names.
-2. **No hits** — the workaround is already gone. Either it was removed without closing the
-   tracker, or the path moved. Find out which; do not close on the grep alone.
-3. **Hits, and upstream is fixed** — this is the adoption work. Report the exact sites.
-4. **Hits, and upstream is still open** — correct and expected. Say nothing beyond a line.
+1. Run the grep from the Affected code section in the repository it names.
+2. **No results:** the workaround is not in the code. Either it was removed and the
+   tracking issue was not closed, or the file moved. Find out which. Do not close the
+   tracking issue on this result alone.
+3. **Results, and upstream is fixed:** this is the work to adopt the fix. Report each
+   location.
+4. **Results, and upstream is open:** this is the expected state. Report it in one line.
 
-Report drift: a tracker naming a file that no longer exists is stale, and correcting its
-body is worth more than the check that found it.
+Report outdated content. If a tracking issue names a file that does not exist, update the
+issue body.
 
 ### Close
 
-**A tracker closes when the workaround is gone, not when upstream merged.** The label says
-upstream shipped; the close says we adopted it. Collapsing the two throws away the reminder
-the store exists to hold.
+**Close a tracking issue when the workaround is removed, not when upstream merges the
+fix.** The label records that upstream released the fix. The closed state records that this
+project adopted it. These are two different events.
 
-Before closing, confirm the work is real: the dependency upgraded, the patch deleted, the
-grep now empty. Then log it, because the closing comment is what explains the decision to
-whoever finds the issue later:
+Before you close, confirm that the work is done: the dependency is upgraded, the patch is
+deleted, the grep returns no results. Then add a comment and close. The comment explains the
+decision to a later reader:
 
 ```bash
 gh issue comment <n> -R <owner>/issues --body-file - <<'EOF'
 Adopted in <version>. Removed the workaround at `src/db/client.ts:41`;
-`rg 'RETRY_AROUND_5435'` is now empty.
+`rg 'RETRY_AROUND_5435'` now returns no results.
 EOF
 gh issue close <n> -R <owner>/issues
 ```
 
-Closing a tracker upstream **declined** is also valid, and the log says what was decided
-instead: forked, patched, moved off the dependency, or accepted permanently.
+A tracking issue with the label `upstream:declined` can also be closed. The comment then
+records the decision: fork, patch, move off the dependency, or keep the workaround
+permanently.
 
 ## Step 5: Report
 
-One or two lines, no ceremony.
+One or two lines.
 
-- **Filed** — the tracker URL, the upstream link, and which files were annotated.
-- **Reviewed** — the grouped list, nothing else.
-- **Re-checked** — only what changed. "Nothing moved" is a complete answer.
-- **Verified** — per tracker: still needed, already gone, or stale.
-- **Closed** — what was adopted and what was deleted.
+- **Filed:** the tracking issue URL, the upstream link, and the annotated files.
+- **Reviewed:** the grouped list only.
+- **Re-checked:** only the changes. "Nothing changed" is a complete answer.
+- **Verified:** per tracking issue: still needed, already removed, or outdated.
+- **Closed:** what was adopted and what was deleted.
 
-Do not paste the issue body back after filing. The user approved it a moment ago.
+Do not show the issue body again after filing.
 
 ## Notes
 
-- **The store is private; upstream is not.** Everything written into a tracker may name
-  real paths and real projects. Anything posted upstream, including a reaction, is public
-  and permanent.
-- **Neighbouring skills.** `issue` files against the repository being worked on, for our
-  own bugs. `remind` handles local follow-ups with no upstream thread. This one is only for
-  a defect in software we depend on but do not control.
-- **The workflow never closes anything**, and it comments only when its conclusion changes,
-  so a quiet repository means nothing moved rather than that it stopped running.
+- **The store is private. Upstream is public.** A tracking issue can name real paths and
+  projects. Everything posted upstream, including a reaction, is public and permanent.
+- **Related skills.** `issue` files issues in the current repository for its own bugs.
+  `remind` stores local follow-ups without an upstream link. This skill is only for defects
+  in software the user depends on but does not control.
+- **The workflow never closes an issue.** It comments only when the result changes. A store
+  without new comments means the upstream state did not change.

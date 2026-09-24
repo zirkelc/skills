@@ -1,31 +1,31 @@
 # issues
 
-Upstream issues and pull requests I am waiting on, and the reason I am waiting.
+Upstream issues and pull requests I wait on, and the reason.
 
-The upstream tracker records what the maintainers need. This repository records
-what *I* needed: which project hit the limitation, what the workaround costs, and
-what to delete once the fix lands. That context is the part that is normally lost
-between subscribing to an issue and it being fixed a year later.
+An upstream issue records what the maintainers need to fix. This repository records what I
+need: the project that has the limitation, the workaround and its cost, and the code to
+delete after the fix is released. This information is usually lost between the subscription
+and the fix.
 
-This repository is private, so issues can name real paths, real repositories and
-real constraints. Anything written *upstream* is public and has to stand on its own.
+This repository is private. Issues can contain real file paths, repository names, and
+constraints. Everything posted upstream is public.
 
-One issue per upstream problem, titled `[package] what I need`, written to the form
-in [`.github/ISSUE_TEMPLATE/tracker.md`](.github/ISSUE_TEMPLATE/tracker.md).
+One issue per upstream problem. Title format: `[package] <requirement>`. Body format:
+[`.github/ISSUE_TEMPLATE/tracker.md`](.github/ISSUE_TEMPLATE/tracker.md).
 
 ## Labels
 
-`.github/workflows/upstream-check.yml` runs daily, resolves every link in the
-Upstream section, and labels the issue when the conclusion changes. No label means
-upstream is still open and there is nothing to do.
+`.github/workflows/upstream-check.yml` runs daily. It reads each link in the Upstream
+section, queries the upstream state, and sets a label when the result changes. An issue
+without a label waits for upstream and needs no action.
 
-| label | what happened | what it asks for |
+| label | upstream state | required action |
 |---|---|---|
 | `upstream:fixed` | merged, or closed as completed | check for a release, upgrade, delete the workaround |
-| `upstream:declined` | closed as not planned, or PR closed unmerged | the workaround is permanent now: keep, fork, patch or move off it |
-| `upstream:moved` | closed as a duplicate | re-point the Upstream section at the surviving issue |
-| `upstream:unreachable` | the link no longer resolves | the repository was renamed, deleted or made private |
+| `upstream:declined` | closed as not planned, or PR closed without merge | the workaround is permanent: keep it, fork, patch, or move off the dependency |
+| `upstream:moved` | closed as a duplicate | replace the link in the Upstream section with the surviving issue |
+| `upstream:unreachable` | the link does not resolve | the repository was renamed, deleted, or made private |
 
-The workflow never closes an issue. Upstream shipping a fix is not the same as this
-project having adopted it, and the label is the queue of work that adoption creates.
-An issue closes when the workaround is actually gone.
+The workflow does not close issues. An upstream fix and its adoption in this project are two
+different events. The label is the list of adoption work. Close an issue when the workaround
+is removed from the code.

@@ -1,32 +1,32 @@
 ---
 name: Upstream tracker
-about: Something a dependency needs to fix, and why we needed it
-title: "[package] what I need"
+about: A fix or feature needed from a dependency, and the code that needs it
+title: "[package] <requirement>"
 ---
 
 ## Upstream
 
-<!-- Every issue or PR link that would settle this. The workflow reads this section
-     and nothing else, so related-but-not-deciding threads belong in Notes. -->
+<!-- Each issue or PR link that decides the outcome. The workflow reads only this
+     section. Put related links in Notes. -->
 
 - https://github.com/owner/repo/issues/123
 
-## What I need
+## Requirement
 
-<!-- The capability or fix in our terms, not the maintainer's. One or two sentences. -->
+<!-- The fix or feature this project needs, in one or two sentences. -->
 
-## Where it bites
+## Affected code
 
-<!-- Absolute repo path, exact file:line, and a grep that returns nothing once the
-     workaround is gone. This is what makes the tracker checkable later. -->
+<!-- Absolute repository path, exact file:line, and a grep that returns no results
+     after the workaround is removed. -->
 
-- `~/Developer/acme-api` — `src/db/client.ts:41`, the retry loop only exists because of this
-- `rg 'RETRY_AROUND_5435' ~/Developer/acme-api` comes back empty once this is done
+- `~/Developer/acme-api`, `src/db/client.ts:41`: the retry loop exists only because of this issue
+- `rg 'RETRY_AROUND_5435' ~/Developer/acme-api` returns no results after the fix is adopted
 
 ## Workaround
 
-<!-- What happens instead today, and what it costs. Delete if there is none yet. -->
+<!-- The current workaround and its cost. Remove this section if there is no workaround. -->
 
 ## Notes
 
-<!-- Versions affected, alternatives already rejected, related threads. -->
+<!-- Affected versions, rejected alternatives, related links. -->
