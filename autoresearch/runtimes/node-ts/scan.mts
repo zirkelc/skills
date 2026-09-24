@@ -1,18 +1,23 @@
 /**
- * Scaling scan: times each input shape at size n and at 4n, against one revision.
+ * Scaling scan: times each input shape at three sizes against one revision.
  *
- *   node perf/scan.mts [rev=WORKTREE] [--factor 4] [--reps 3]
+ *   node perf/scan.mts [rev=WORKTREE] [--factor 4] [--reps 5] [--min-ms 20]
  *
  * Linear work costs about `factor` times more at `factor` times the input. A ratio well above that
- * marks a superlinear path, which the A/B suite cannot see: on the input sizes a benchmark uses,
- * a quadratic resolver is invisible, and on long input it costs five to seventeen times. Profile
+ * marks a superlinear path, which the A/B suite cannot see: on the input sizes a benchmark uses, a
+ * quadratic resolver is invisible, and on long input it costs five to seventeen times. Profile
  * every shape the scan flags and look for mid-array `splice`, `shift`, `unshift` or `indexOf`
  * inside a loop over the same array.
  *
- * The cases module exports `buildScan(lib)` for this: shapes that take a size and return an input.
+ * Two rules keep the flags honest, both learned from a scan that cried wolf. Each shape's base size
+ * grows until its body takes at least `--min-ms`, because a 5 ms base makes noise look like
+ * curvature. And the scan measures n, 4n and 16n, flagging only when **both** steps exceed the
+ * factor: one bad step is noise, two in a row is a shape.
+ *
+ * The cases module exports `buildScan(lib)`: shapes that take a size and return an input.
  */
-import { pathToFileURL } from "node:url";
 import * as path from "node:path";
+import { pathToFileURL } from "node:url";
 import { WORKTREE, loadConfig, materialise, timeNs } from "./harness.mts";
 
 /** One input shape, parameterised by size. */
@@ -22,7 +27,7 @@ export interface ScanShape {
   input: (n: number) => unknown;
   /** Runs the library over one input. */
   run: (input: unknown) => void;
-  /** Base size. The scan also measures `n * factor`. */
+  /** Starting size. The scan grows it until the body is long enough to time, then scales from there. */
   n?: number;
 }
 
@@ -30,9 +35,11 @@ const HARNESS_DIR = import.meta.dirname;
 const { config, positionals, values } = loadConfig(HARNESS_DIR, process.argv.slice(2), {
   factor: { type: "string" },
   reps: { type: "string" },
+  "min-ms": { type: "string" },
 });
 const FACTOR = Number(values.factor ?? 4);
-const REPS = Number(values.reps ?? 3);
+const REPS = Number(values.reps ?? 5);
+const MIN_MS = Number(values["min-ms"] ?? 20);
 const rev = positionals[0] ?? WORKTREE;
 
 const lib = await import(pathToFileURL(materialise(config, rev, "scan")).href);
@@ -42,26 +49,35 @@ if (typeof casesModule.buildScan !== "function") {
 }
 const shapes: Array<ScanShape> = casesModule.buildScan(lib);
 
-const best = (fn: () => void) => {
+function best(shape: ScanShape, input: unknown): number {
+  shape.run(input);
   let min = Number.POSITIVE_INFINITY;
-  for (let r = 0; r < REPS; r++) min = Math.min(min, timeNs(fn));
+  for (let r = 0; r < REPS; r++) min = Math.min(min, timeNs(() => shape.run(input)));
   return min / 1_000_000;
-};
+}
 
-console.log(`scaling scan @ ${rev} (n against ${FACTOR}n, min of ${REPS})`);
-console.log(`${"shape".padEnd(28)}${"n".padStart(9)}${`${FACTOR}n`.padStart(11)}${"ratio".padStart(9)}`);
+console.log(`scaling scan @ ${rev} (n, ${FACTOR}n, ${FACTOR ** 2}n; min of ${REPS}; base grown to >= ${MIN_MS} ms)`);
+console.log(
+  `${"shape".padEnd(24)}${"n".padStart(10)}${"t(n)".padStart(9)}${`t(${FACTOR}n)`.padStart(10)}${`t(${FACTOR ** 2}n)`.padStart(11)}${"step1".padStart(8)}${"step2".padStart(8)}`
+);
+
 for (const shape of shapes) {
-  const n = shape.n ?? 10_000;
-  const small = shape.input(n);
-  const large = shape.input(n * FACTOR);
-  shape.run(small);
-  shape.run(large);
-  const tSmall = best(() => shape.run(small));
-  const tLarge = best(() => shape.run(large));
-  const ratio = tLarge / tSmall;
-  /** Well above the factor means superlinear. Some slack, because constants move small inputs. */
-  const flag = ratio > FACTOR * 1.6 ? "  <- superlinear" : "";
+  /** Grow the base until the body is long enough that noise cannot pass for curvature. */
+  let n = shape.n ?? 1_000;
+  let base = best(shape, shape.input(n));
+  for (let grow = 0; base < MIN_MS && grow < 8; grow++) {
+    n *= 2;
+    base = best(shape, shape.input(n));
+  }
+
+  const mid = best(shape, shape.input(n * FACTOR));
+  const large = best(shape, shape.input(n * FACTOR * FACTOR));
+  const step1 = mid / base;
+  const step2 = large / mid;
+  /** Both steps must exceed the factor by a margin: one is noise, two in a row is a shape. */
+  const superlinear = step1 > FACTOR * 1.4 && step2 > FACTOR * 1.4;
+  const note = base < MIN_MS ? "  (base still short, treat with care)" : superlinear ? "  <- superlinear" : "";
   console.log(
-    `${shape.name.padEnd(28)}${tSmall.toFixed(2).padStart(9)}${tLarge.toFixed(2).padStart(11)}${ratio.toFixed(2).padStart(9)}${flag}`
+    `${shape.name.padEnd(24)}${String(n).padStart(10)}${base.toFixed(1).padStart(9)}${mid.toFixed(1).padStart(10)}${large.toFixed(1).padStart(11)}${step1.toFixed(2).padStart(8)}${step2.toFixed(2).padStart(8)}${note}`
   );
 }

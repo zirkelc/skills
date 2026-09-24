@@ -112,7 +112,9 @@ async function measure(entryFirst: string, entrySecond: string): Promise<Array<R
      * below 1 ms it is dominated by jitter. Say so once, while the fixtures are still cheap to change. */
     const bodyMs = minA / reps / 1_000_000;
     if (bodyMs > 50 || bodyMs < 1) {
-      console.error(`warning: case "${a.name}" runs ${bodyMs.toFixed(2)} ms per body, outside the 1 to 50 ms range`);
+      /** Tagged so the parent can deduplicate by case: each child measures a slightly different
+       * body time, so the text alone would name the same case once per child. */
+      console.error(`perf-warning\t${a.name}\truns ${bodyMs.toFixed(2)} ms per body, outside the 1 to 50 ms range`);
     }
     a.teardown?.();
     b.teardown?.();
@@ -155,10 +157,11 @@ function child(entryFirst: string, entrySecond: string): Array<Row> {
   /** Children warn about unusable case sizes; every child repeats the same warning, so print each
    * distinct line once rather than four times. */
   for (const line of (res.stderr ?? "").split("\n").filter(Boolean)) {
-    if (!seenWarnings.has(line)) {
-      seenWarnings.add(line);
-      console.error(line);
-    }
+    const tagged = line.startsWith("perf-warning\t");
+    const key = tagged ? line.split("\t")[1] : line;
+    if (seenWarnings.has(key)) continue;
+    seenWarnings.add(key);
+    console.error(tagged ? `warning: case "${key}" ${line.split("\t")[2]}` : line);
   }
   const lines = res.stdout.trim().split("\n");
   return JSON.parse(lines[lines.length - 1]);

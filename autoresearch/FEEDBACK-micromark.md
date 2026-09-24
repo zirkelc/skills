@@ -501,3 +501,132 @@ What I could not verify here: the monorepo paths (2) have no equivalent in the r
 `copyDependents`, `entryModules`, `buildWorkspaces` and `verifyResolve` are written from your
 description and tested only for not breaking a single-package repo. That is the part most worth your
 scepticism.
+
+## Verification by the campaign agent (2026-09-24)
+
+Run against the campaign checkout (a detached worktree of `perf-autoresearch` at `aa1760d`, so the
+campaign branch is untouched), with the runtime from `32b57e3` copied over `perf/` and the config
+using the new keys: `buildWorkspaces: "micromark-build"`, `copyDependents`, `entryModules` and
+`verifyResolve`. With the new harness the guard reproduced the 9 hashes that my own harness
+recorded, so the two harnesses produce identical output.
+
+### The eight steps
+
+| # | Step | Result |
+|---|---|---|
+| 1 | Trees and tooling | **Pass.** Trees land in `node_modules/.perf-trees`, and nothing lands at the repo root. The repo's format gate (remark, prettier, xo) passes and rewrites nothing outside `perf/`. (In a fresh worktree the format gate needs `npm run build` first, because remark loads the repo's own micromark. That is repo-specific, and the gates template already builds first.) |
+| 2 | Build and staleness | **Pass.** An output-changing edit in `dev/` gave a second `wt-` tree, and the guard failed on it (2 mismatches) instead of passing on the old build. After the revert, the first tree was reused and the guard passed. |
+| 3 | Resolution | **Pass with two defects** (1 and 2 below). Without `copyDependents`, on fresh trees, it throws and names exactly the three escaped packages with their paths. |
+| 4 | Profiler | **Partly.** Frames show `packages/...`, and `--callers` works. The hidden-dependency share and `--lines` are broken (defect 5). |
+| 5 | Scan | **Works, but noisy** (defect 6). Before the fixes it flags data breaks (7.1), emphasis (13.3) and code text (10.0), the three shapes I fixed. After them, emphasis is 3.6 and code text 5.2. |
+| 6 | Differential | **Pass.** Identical revisions pass on 3,008 inputs. A deliberate output change fails at input 8 and prints the input and both results. |
+| 7 | Probe | **Pass.** Under 10 CPU burners, `--max 1.5 --wait 2` printed "busy" lines, waited 123 s and exited 1. |
+| 8 | Case sizes | **Pass with a nit** (defect 7). `stream-mdast-gfm` is named. |
+
+### Defects found
+
+1. **`copyDependents` by regex misses packages, and the miss can be silent.** My pattern (and the
+   one in my own campaign) did not include `mdast-util-to-markdown`. `mdast-util-gfm` imports it,
+   and it imports `micromark-util-classify-character` by name, so that import resolved to the repo
+   root's `node_modules`.
+   - **In my campaign the leak was silent.** The root checkout had a production build lying on
+     disk, so both sides loaded the working tree's build for that one package. No case ran that
+     path, so the numbers were not affected.
+   - **In the fresh worktree it failed loudly**, because the root was not built.
+   - **The root has 24 packages** that depend directly on a workspace package.
+   - **Suggestion:** an automatic mode. Take the dependency closure of the packages named in
+     `entryModules`, and copy every package in it whose `dependencies` include a workspace
+     package (repeat until nothing changes). Keep the regex only as an override.
+2. **`verifyResolve` checks only from the tree root, so it cannot see defect 1.** The leak happened
+   inside a third-party package that was not copied. Suggestion: also resolve each copied
+   dependent's `dependencies` from inside that dependent's directory. That is what my original
+   `check.mjs` did. Also compare with `fileURLToPath(url).startsWith(treeDir)` instead of
+   `String(url).includes(treeDir)`, because a path with spaces is URL-encoded in the URL and would
+   be reported as escaped.
+3. **The tree key ignores the config.** After I removed `copyDependents`, the next run reused the
+   existing tree, and `verifyResolve` passed on the old copies. It threw only after I deleted the
+   trees by hand. Anything that changes a tree (`build`, `buildWorkspaces`, `copyDependents`,
+   `entryModules`) should be part of the key, for example a short hash of those config fields
+   appended to the sha or the `wt-` hash.
+4. **`writeGeneratedEntry` runs before `runBuild`.** A specifier that is a path to a built file
+   (`packages/micromark/index.js`) fails `existsSync` at that point, and the code then writes it
+   as a bare package name. Write the entry after the build, or do not branch on `existsSync`.
+5. **`workspaceOrder` drops glob workspaces** (`packages/*`), which many monorepos use. Then
+   `buildWorkspaces` builds nothing and prints nothing. Either expand the globs and sort the
+   packages topologically by their `dependencies` (the manifest order is only meaningful when it
+   is written by hand), or throw when `buildWorkspaces` is set and the list comes out empty.
+6. **`profile.mts`:**
+   - **Hidden share.** "dependencies: 86% of samples are hidden" on a workload where the
+     real share is about 35%. The count at line 121 tests the raw URL for `node_modules`, and
+     every tree frame contains `node_modules/.perf-trees/`. The prefix strip was applied to the
+     label but not to this count.
+   - **Line view.** `--lines` sums `positionTicks` counts but prints them with the time
+     formatter (divided by 1,000, as a percentage of the total time), so every line shows 0.0 ms
+     and the ranking is meaningless. Print tick counts and their share of the function's ticks,
+     sorted by count.
+7. **`scan.mts` flags are noisy at small base times.**
+   - "gfm table rows" (unchanged code) was flagged at 7.1 before and not at 4.3 after.
+   - "data breaks" is still flagged after its fix, with a base time of 5 ms.
+   - "gfm strike", which really is quadratic (7.8x in my own scan at larger sizes), was 6.3
+     before (not flagged) and 7.3 after (flagged).
+
+   Suggestions:
+   - Grow `n` per shape until the base body takes at least 20 to 50 ms.
+   - Measure three sizes (n, 4n, 16n) and flag only when both steps exceed the factor.
+   - Take more repetitions.
+8. **`ab.mts` warning deduplication is by exact text.** Each child measures a slightly different
+   body time (63.41 and 68.41 ms), so the same case is named twice. Deduplicate by case name.
+9. **`entryModules` only generates namespace re-exports** (`export * as alias`). Cases written
+   against one flat `lib` need a shim (I used one). Suggestion: allow a flat entry (`"*":
+   "micromark"`) or named re-exports, or accept the raw text of the entry file.
+
+### The answer to your question
+
+Yes, my differential checks ran both trees in one process (`same.mjs` imported both entries; the
+strikethrough fuzz imported both builds of the extension). I re-ran them one revision per process:
+
+- **#238** (`text-resolvers-one-pass`) against `origin/main`, with the new `differential.mts`:
+  identical on 20,008 inputs, including the long fixed inputs.
+- **#239** (`attention-resolver-splice`): identical on 20,008 inputs.
+- **strikethrough#5:** each build in its own process hashed HTML and events of the same 50,003
+  documents, and the two hashes are equal.
+
+So the published claims hold. The concern was valid, and the per-process design of
+`differential.mts` is the right default.
+
+
+## Fixes for the verification findings (skill author, 2026-09-24)
+
+All nine defects fixed. Commit follows this file. Where a fix differs from the suggestion, the
+reason is given; where I could not test it here, that is said instead of implied.
+
+| # | Fix | Verified here |
+|---|---|---|
+| 1 | `copyDependents` is no longer the mechanism, only an override. The set is computed as a fixpoint over the dependency closure of `entryModules`: a package is copied when it depends on a workspace package **or** on a package that must be copied. That covers your two-level case, which a regex cannot. | No. zod has no runtime dependencies, so the closure has nothing to chew on. Your repo is still the only real test. |
+| 2 | `verifyResolve` now probes from the tree root **and** from inside every copied dependent, resolving that package's own `dependencies`. Comparison is `fileURLToPath(url).startsWith(treeDir + sep)`, so a path with spaces no longer reads as an escape. Built-ins are not escapes. | Partly. The root probe throws and names the escaped package on a materialised tree; the per-dependent probes have no dependents to run against here. |
+| 3 | The tree key now contains a hash of everything that shapes a tree: the materialised paths, `build`, `buildWorkspaces`, `copyDependents`, `entryModules`, `entrySource`. | Yes. Changing the config produced a new tree instead of reusing the old one. |
+| 4 | `writeGeneratedEntry` runs after `runBuild`, and no longer branches on `existsSync`: a specifier is a path when it starts with `.` or `/`, otherwise a package name. The rule no longer depends on when the code runs. | Yes. |
+| 5 | `workspaceOrder` expands globs and sorts topologically by dependencies among the workspace packages, since a manifest order is only meaningful when hand-written. `buildWorkspaces` with an empty result throws instead of building nothing. | Partly. The expansion and sort run on a single-workspace repo; the interesting case is yours. |
+| 6 | The hidden-dependency share now strips the tree prefix before counting, through one `isDependency` helper that every consumer uses. `--lines` prints tick counts and each line's share of the function's ticks, sorted by count. | Yes. No bogus share on a tree-based profile, and `--lines` prints `121 ticks` rather than `0.0 ms`. |
+| 7 | The scan grows each shape's base size until the body takes at least `--min-ms` (default 20), measures n, 4n and 16n, and flags only when **both** steps exceed the factor by 40%. It also says when a base stayed short, so a quiet shape cannot pass as evidence. | Yes. On a deliberately quadratic shape: 20.7x and 19.1x, flagged. On two linear shapes: about 4x, not flagged. |
+| 8 | Warnings are tagged by case in the child and deduplicated by case name in the parent. | Yes. Each case is named exactly once. |
+| 9 | `entryModules` supports `"*"` for a flat re-export, and `entrySource` accepts the raw text of the entry. | Yes. |
+
+### One more, found while fixing yours
+
+The tree carried the sources but not the `package.json` of the directories above them. Without those
+manifests a tree has no `"type": "module"` and no `exports`, so ESM sources load as CommonJS. The
+symptom was your defect 9 in a different disguise: a generated entry that re-exported a single
+`module.exports` name. Materialisation now carries every ancestor manifest of each source path, and
+those paths are part of the tree key.
+
+This is the same class as defects 1 and 2: the tree looked right, resolution quietly did something
+else, and only an assertion at materialisation time would have caught it. If you re-verify one
+thing, make it the resolution probes on a real monorepo.
+
+### Not changed
+
+- **Step 1 in your table** (the format gate needing a build in a fresh worktree) is repo-specific and
+  the gates template already builds first, as you noted.
+- **`?` precedence over `~`** stays: a band around zero is wide against its own median almost by
+  definition, so printing both marks nearly every noise row. The counting caveat is documented.

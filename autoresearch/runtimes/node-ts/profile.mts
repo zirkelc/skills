@@ -78,13 +78,25 @@ for (const [id, t] of selfTime) {
 }
 
 const rootUrl = `file://${config.root}/`;
+
+/**
+ * Trees live under `node_modules/.perf-trees`, so that prefix has to go before anything decides
+ * whether a frame belongs to a dependency. Every consumer uses this, not just the label: counting
+ * raw URLs reported 86% of samples as dependencies on a workload whose real share was about 35%.
+ */
+function withoutTreePrefix(url: string): string {
+  const inTree = url.match(/node_modules\/\.perf-trees\/[^/]+\//);
+  return inTree ? url.slice(url.indexOf(inTree[0]) + inTree[0].length) : url;
+}
+
+function isDependency(url: string): boolean {
+  return withoutTreePrefix(url).includes("node_modules/");
+}
+
 function label(n: ProfileNode): string | null {
   const { url, functionName, lineNumber } = n.callFrame;
-  /** Trees live under `node_modules/.perf-trees`, so strip that prefix before deciding whether a
-   * frame belongs to a dependency. Without this every frame of the library would count as one. */
-  const inTree = url.match(/node_modules\/\.perf-trees\/[^/]+\//);
-  const classified = inTree ? url.slice(url.indexOf(inTree[0]) + inTree[0].length) : url;
-  if (url.startsWith("node:") || (classified.includes("node_modules") && !DEPS)) return null;
+  const classified = withoutTreePrefix(url);
+  if (url.startsWith("node:") || (classified.includes("node_modules/") && !DEPS)) return null;
   if (!url && (!functionName || ["(program)", "(idle)", "(root)"].includes(functionName))) return null;
   const file = classified.includes("node_modules/")
     ? classified.slice(classified.lastIndexOf("node_modules/") + "node_modules/".length)
@@ -118,7 +130,7 @@ console.log(`profiled ${selected.map((c) => c.name).join(", ")} for ${SECONDS}s 
 if (!DEPS) {
   let depTime = 0;
   for (const n of nodes) {
-    if (n.callFrame.url.includes("node_modules")) depTime += selfTime.get(n.id) ?? 0;
+    if (isDependency(n.callFrame.url)) depTime += selfTime.get(n.id) ?? 0;
   }
   const share = (depTime / grand) * 100;
   if (share >= 1) console.log(`dependencies: ${share.toFixed(0)}% of samples are hidden, re-run with --deps to see them`);
@@ -151,7 +163,16 @@ if (focus) {
         byLine.set(key, (byLine.get(key) ?? 0) + tick.ticks);
       }
     }
-    if (byLine.size === 0) console.log(`\nno line ticks for ${focus}: is the name spelled as it appears above?`);
-    else print(`ticks of ${focus} by line`, byLine);
+    if (byLine.size === 0) {
+      console.log(`\nno line ticks for ${focus}: is the name spelled as it appears above?`);
+    } else {
+      /** Ticks are counts, not microseconds: print them as counts and as a share of this
+       * function's own ticks, or every line reads as 0.0 ms and the ranking says nothing. */
+      const total = [...byLine.values()].reduce((a, b) => a + b, 0);
+      console.log(`\n== ticks of ${focus} by line (${total} ticks total) ==`);
+      for (const [key, ticks] of [...byLine.entries()].sort((a, b) => b[1] - a[1]).slice(0, TOP)) {
+        console.log(`${((ticks / total) * 100).toFixed(1).padStart(6)}%  ${String(ticks).padStart(8)} ticks  ${key}`);
+      }
+    }
   }
 }

@@ -43,11 +43,18 @@ Extra config keys, all optional, for repos where the sources are not what users 
 |---|---|
 | `build` | Command run in each tree after unpacking. Set it whenever the shipped artifact is generated, especially when it is gitignored. The working tree is then materialised and built too, keyed by the content of its sources, so no side can measure a stale artifact. |
 | `buildWorkspaces` | Command run per workspace, in the root manifest's order, for builds where a package needs its dependencies built first. |
-| `copyDependents` | Regular expression over the root `node_modules`. Matching packages are copied into the tree, dereferenced. Needed for third-party packages that import the workspace packages by name: a symlink resolves to its realpath and would pull the working tree's code back in. |
-| `entryModules` | Map of alias to specifier. The harness writes a `perf-entry.mjs` per tree that re-exports them, so the cases get one `lib` whose parts all come from one revision. |
+| `copyDependents` | Regular expression over the root `node_modules`, as an addition to the automatic closure below. |
+| `entryModules` | Map of alias to specifier. The harness writes a `perf-entry.mjs` per tree that re-exports them, so the cases get one `lib` whose parts all come from one revision. The alias `*` re-exports flat, so cases need no shim. A specifier starting with `.` or `/` is a path inside the tree, anything else is a package name. |
+| `entrySource` | Raw source for that entry, when aliases are not expressive enough. |
 | `verifyResolve` | Package names whose resolution must stay inside the tree. Checked at materialisation, before any measurement. |
 
-Packages inside the tree are always linked into its own `node_modules`, so workspace packages that import each other by name resolve within the tree.
+Three things happen automatically, because getting them wrong puts one revision on both sides of the comparison and produces numbers that look ordinary:
+
+- **Manifests travel with the sources.** The `package.json` of every directory above a source path is materialised too. Without them the tree has no `"type": "module"` and no `exports`, so ESM sources load as CommonJS and resolution behaves unlike the real package.
+- **Workspace packages are linked** into the tree's own `node_modules`, so packages that import each other by name resolve within the tree.
+- **Dependents are copied by dependency closure.** Starting from `entryModules`, any package that depends on a workspace package, or on a package that must be copied, is copied in with `dereference: true`. A regex cannot be trusted here: one campaign's pattern missed a package two levels down, and the leak was silent because a build happened to lie on disk. `copyDependents` remains for what the closure cannot see.
+
+`verifyResolve` checks from the tree root **and** from inside every copied dependent, which is where a missing copy shows up. The tree key includes the config that shapes a tree, so changing `build`, `copyDependents` or `entryModules` builds a new tree instead of reusing the old one.
 
 ## Commands
 
@@ -90,7 +97,7 @@ Per case, `ab.mts` prints the minimum ms of one body for A and B, the delta, the
 
 - **Hidden classes.** On V8, an accessor (getter/setter) as an own property of instances or of hot internal objects can move those objects out of fast-properties mode. Code that never touches the property then slows down: in one campaign, parse paths regressed by 57% to 142%. The inverse is a large win: moving the last per-instance accessor to the prototype made unrelated parse paths 12 to 58% faster. Prefer data properties on instances, and put accessors on shared prototypes.
 - **Leaf paths are allocation-bound.** When one call takes about 15 ns, a shared frozen object instead of a fresh one per call gave 15%. Look for object literals, closures and spreads created on every call.
-- **Line numbers in profiles** can show as `:1` when the TypeScript loader transforms files without line-preserving source maps. Rely on function and file names.
+- **Line numbers in profiles** can show as `:1` when the TypeScript loader transforms files without line-preserving source maps. Rely on function and file names, and for `--lines` prefer Node's own type stripping, which keeps the lines.
 - **Error construction** often dominates failure paths (stack capture). Changing it usually changes `error.stack`, which is observable: treat it as a decision item, not as an experiment.
 - **Case size is part of the instrument.** Keep a timed body between roughly 5 and 50 ms. A body of hundreds of milliseconds contains a collection almost by construction, so no estimator filters it out, and a body under 1 ms is dominated by jitter (its band will be enormous, which the output shows).
 - **Let a case own its inputs.** Build them in `setup`, drop them in `teardown`. Inputs of every case held alive for a whole run exist twice, once per revision, and make every later collection slower on both sides. A workload that mutates its input has to rebuild it in `setup` or inside `run`.
