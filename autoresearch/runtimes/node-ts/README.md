@@ -14,6 +14,7 @@ Node 24 runs the `.mts` files directly (it strips the types), so the harness its
 | `jitter.mts` | Machine-readiness probe, with a wait mode. Run before calibrating and before every run |
 | `scan.mts` | Scaling scan: each input shape at n and 4n, to find superlinear paths |
 | `differential.mts` | Compares two revisions over generated and edge-case inputs, beyond the guard |
+| `selftest.mts` | Builds a synthetic monorepo in a temp directory and checks the tree logic. Run it after changing `harness.mts` |
 | `solo.mts` | One case, one revision, its own process. Confirms a suspicious per-case delta |
 | `mem.mts` | Retained bytes per instance, for cases that define `alloc()` |
 | `profile.mts` | In-process CPU profile of the cases, aggregated per function |
@@ -54,7 +55,7 @@ Three things happen automatically, because getting them wrong puts one revision 
 - **Workspace packages are linked** into the tree's own `node_modules`, so packages that import each other by name resolve within the tree.
 - **Dependents are copied by dependency closure.** Starting from `entryModules`, any package that depends on a workspace package, or on a package that must be copied, is copied in with `dereference: true`. A regex cannot be trusted here: one campaign's pattern missed a package two levels down, and the leak was silent because a build happened to lie on disk. `copyDependents` remains for what the closure cannot see.
 
-`verifyResolve` checks from the tree root **and** from inside every copied dependent, which is where a missing copy shows up. The tree key includes the config that shapes a tree, so changing `build`, `copyDependents` or `entryModules` builds a new tree instead of reusing the old one.
+`verifyResolve` checks from the tree root **and** from inside every copied dependent, which is where a missing copy shows up. Only workspace packages, the copied set and the names you list have to resolve inside the tree: a shared dependency that never reaches your code is meant to resolve to the root, and reporting those made a real monorepo unusable (twenty reports, none of them real). Paths are compared after `realpath`, because a repo reached through a symlink otherwise makes every import look like an escape. The tree key includes the config that shapes a tree, so changing `build`, `copyDependents` or `entryModules` builds a new tree instead of reusing the old one.
 
 ## Commands
 

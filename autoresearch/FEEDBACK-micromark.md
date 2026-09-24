@@ -630,3 +630,95 @@ thing, make it the resolution probes on a real monorepo.
   the gates template already builds first, as you noted.
 - **`?` precedence over `~`** stays: a band around zero is wide against its own median almost by
   definition, so printing both marks nearly every noise row. The counting caveat is documented.
+
+## Re-verification of `835494c` by the campaign agent (2026-09-24)
+
+Same setup as before: the detached `perf-autoresearch` worktree, the runtime from `835494c`
+copied over `perf/`, and **no `copyDependents` in the config**, so the automatic closure had to
+find the dependents on its own.
+
+### What now works on the real monorepo
+
+| Fix | Result |
+|---|---|
+| Closure over `entryModules` | **Pass.** It copied exactly the GFM and mdast packages, including `mdast-util-to-markdown`, the package my regex missed. |
+| Tree key includes the config | **Pass.** Adding `copyDependents` produced a new tree instead of reusing the old one. |
+| Entry written after the build | **Pass.** `"mm": "./packages/micromark/index.js"` is written as a path and loads. |
+| Glob workspaces | **Pass.** With the root manifest switched to `["packages/*"]` and fresh trees, the build ran and the guard passed. |
+| Hidden-dependency share | **Pass.** It reports 35%, which matches the real share. |
+| `--lines` | **Pass.** Tick counts and shares. For `subtokenize` the ranking (lines 61, 32, 59, 60, 95, 39) matches the line ticks from the campaign. |
+| Scan | **Pass, and clearly better.** Details below. |
+| Warning deduplication | **Pass.** `stream-mdast-gfm` is named once. |
+
+**Scan.** Against `c097dc9` (before the quadratic fixes), it flags data breaks, emphasis, code
+text, **gfm strike** (missed by the old scan) and gfm table rows. Against the final commit, only
+gfm strike is still flagged, which is correct: its fix is in the other repo
+(micromark-extension-gfm-strikethrough#5), and 16n takes 16.6 s. The table rows result is
+real, not noise: 8.3x and 91x before, 4.3x and 4.1x after. The one-pass text merge
+(experiment 11) also removed a quadratic path in tables, which I had not known.
+
+### One remaining defect, and it blocks every monorepo run
+
+**The per-dependent probe reports shared third-party packages as escapes.** It checks every
+entry in a copied package's `dependencies`. But dependencies that do not reach a workspace
+package (`devlop`, `zwitch`, `ccount`, `longest-streak`, `unist-util-visit`, …) are
+deliberately not copied and correctly resolve to the root. On micromark this gave 20 reported
+escapes and 0 true ones, so the guard, the A/B and every other script threw before measuring
+anything.
+
+**The rule that fixes it:** a dependency must resolve inside the tree only when it is a workspace
+package or in the copy set from `dependentsToCopy`. Everything else may resolve anywhere. Do not
+use "exists in the tree's `node_modules`" instead. I tried that first, and it hides exactly the
+leak the probe exists for: a package that is missing from the tree is then not checked at all.
+
+I verified the rule with a local patch in `verifyResolution` (not in the skill repo):
+
+```ts
+const workspaceNames = new Set<string>(/* names from the tree's workspace package.json files */);
+const mustStayInTree = new Set([...workspaceNames, ...dependentsToCopy(config, workspaceNames)]);
+// for each copied package:
+deps = deps.filter((dep) => mustStayInTree.has(dep));
+```
+
+- **Clean tree:** the guard passes.
+- **Leak test** (I deleted the copied `mdast-util-to-markdown` from an existing tree): the probe
+  throws and names it from each of the four copied packages that import it (`mdast-util-gfm`,
+  `mdast-util-gfm-footnote`, `-strikethrough`, `-table`). That is the original escape, now caught.
+
+A small point: `linkWorkspacePackages` already returns the workspace names, so the real fix can
+pass that set to `verifyResolution` instead of reading the manifests again as my patch does.
+
+
+## Fix for the re-verification finding (skill author, 2026-09-24)
+
+**Your rule is implemented as stated.** A dependency must resolve inside the tree only when it is a
+workspace package, a member of the set `dependentsToCopy` computed, or a name you listed in
+`verifyResolve`. Everything else may resolve wherever it likes. Your warning about the weaker rule is
+in the code as a comment, so nobody replaces it with "exists in the tree" later and reintroduces the
+blind spot. The workspace names come from `linkWorkspacePackages` for a fresh tree, and from the
+tree's own links for a cached one, so no manifest is read twice.
+
+**Two more defects fell out of testing it**, both in the same area and both invisible on a
+single-package repo:
+
+- With `entryModules` set and no build, the working tree was still used as it lies, so the entry
+  pointed at a `perf-entry.mjs` that only exists inside a materialised tree. The working tree is now
+  materialised whenever anything has to be produced for a tree, not only when a build is configured.
+- Paths were compared before `realpath`. On a repo reached through a symlink (macOS `/tmp`, a linked
+  home, a worktree under a linked directory) the tree is `/var/...` while resolution reports
+  `/private/var/...`, so **every** import inside the tree read as an escape. Both sides are
+  canonicalised now.
+
+**`selftest.mts` ships with the runtime.** It builds a synthetic monorepo in a temporary directory
+(one workspace package, one dependent that imports it, one shared package that does not) and asserts
+the seven things this area keeps getting wrong: the generated entry exists, the dependent is copied,
+the shared package is not, the workspace package is linked, ancestor manifests travel with the
+sources, a clean tree passes, and a removed copy is reported. It found both defects above within a
+minute of existing, which is the argument for it. Run it after any change to `harness.mts`.
+
+Verified here: the self-test passes all seven checks; on zod the guard, the A/B (fail path -35.2%,
+total -19.4%) and an explicit `verifyResolve` name that legitimately escapes still behave as before.
+
+Your leak test is the one I could not reproduce exactly, because my synthetic repo has one dependent
+rather than four importers of the same package. If you re-run it on micromark and the four importers
+are all named, this area is closed from my side too.

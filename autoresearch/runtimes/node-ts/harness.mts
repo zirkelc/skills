@@ -186,8 +186,10 @@ function worktreeKey(config: HarnessConfig): string {
  * back to a stale artifact on disk.
  */
 export function materialise(config: HarnessConfig, rev: string, slot: string): string {
-  const builds = Boolean(config.build || config.buildWorkspaces);
-  if (rev === WORKTREE && !builds) return entryPath(config, config.root);
+  /** The working tree can be used as it lies only when nothing has to be produced for a tree: no
+   * build, and no generated entry, which exists only inside a materialised tree. */
+  const produces = Boolean(config.build || config.buildWorkspaces || config.entryModules || config.entrySource);
+  if (rev === WORKTREE && !produces) return entryPath(config, config.root);
 
   const revKey =
     rev === WORKTREE
@@ -215,7 +217,7 @@ export function materialise(config: HarnessConfig, rev: string, slot: string): s
       });
       execFileSync("tar", ["-x", "-C", tmp], { input: tar });
     }
-    const workspaceNames = linkWorkspacePackages(config, tmp);
+    const workspaceNames: Set<string> = linkWorkspacePackages(config, tmp);
     copyDependents(config, tmp, workspaceNames);
     linkNodeModules(config, tmp);
     /** The build runs first: a generated entry may point at a file the build produces. */
@@ -223,7 +225,7 @@ export function materialise(config: HarnessConfig, rev: string, slot: string): s
     writeGeneratedEntry(config, tmp);
     fs.renameSync(tmp, dir);
   }
-  verifyResolution(config, dir);
+  verifyResolution(config, dir, workspaceNamesIn(dir));
   return entryPath(config, dir);
 }
 
@@ -484,8 +486,39 @@ function workspaceOrder(config: HarnessConfig, treeDir: string): Array<string> {
  * the repo root puts the working tree's code on both sides of the comparison, which produces
  * plausible numbers and no symptom, so this runs before any measurement rather than after one.
  */
-function verifyResolution(config: HarnessConfig, treeDir: string): void {
+/** Workspace package names of an existing tree: the links that point back into the tree itself. */
+function workspaceNamesIn(treeDir: string): Set<string> {
+  const modulesDir = path.join(treeDir, "node_modules");
+  const names = new Set<string>();
+  for (const name of listTreePackages(modulesDir)) {
+    const entry = path.join(modulesDir, name);
+    try {
+      if (fs.lstatSync(entry).isSymbolicLink() && fs.realpathSync(entry).startsWith(`${treeDir}${path.sep}`)) {
+        names.add(name);
+      }
+    } catch {
+      /* broken link */
+    }
+  }
+  return names;
+}
+
+function verifyResolution(config: HarnessConfig, treeDir: string, workspaceNames: Set<string>): void {
   if (!config.verifyResolve?.length) return;
+
+  /**
+   * Only two kinds of import have to stay inside the tree: the workspace packages, and the
+   * third-party packages the closure decided to copy. Everything else is shared with the repo on
+   * purpose, resolves to the root, and is not a leak. Checking every dependency instead reported
+   * twenty escapes and no real one on a real monorepo, which stops a campaign before it measures
+   * anything. Do not weaken this to "exists in the tree": a package that is missing from the tree
+   * would then not be checked at all, which is exactly the leak this exists to find.
+   */
+  const mustStayInside = new Set<string>([
+    ...workspaceNames,
+    ...dependentsToCopy(config, workspaceNames),
+    ...config.verifyResolve,
+  ]);
 
   /**
    * Resolution is a property of the importer, not of the tree, so checking only from the tree root
@@ -504,9 +537,14 @@ function verifyResolution(config: HarnessConfig, treeDir: string): void {
     } catch {
       continue;
     }
-    if (deps.length) probes.push({ dir: pkgDir, names: deps });
+    const checked = deps.filter((dep) => mustStayInside.has(dep));
+    if (checked.length) probes.push({ dir: pkgDir, names: checked });
   }
 
+  /** Compare real paths on both sides: a repo reached through a symlink (macOS `/tmp`, a linked
+   * home, a worktree under a linked directory) resolves to a different prefix than the one the
+   * harness holds, and every import inside the tree would read as an escape. */
+  const treeReal = realpathOr(treeDir);
   const escaped: Array<string> = [];
   for (const { dir, names } of probes) {
     const probe = path.join(dir, "perf-resolve-check.mjs");
@@ -521,8 +559,8 @@ function verifyResolution(config: HarnessConfig, treeDir: string): void {
     for (const [name, url] of Object.entries(resolved)) {
       if (!url) continue;
       /** Compare paths, not URLs: a directory with a space is percent-encoded in the URL. */
-      const resolvedPath = url.startsWith("file:") ? fileURLToPath(url) : url;
-      if (resolvedPath.startsWith(`${treeDir}${path.sep}`)) continue;
+      const resolvedPath = realpathOr(url.startsWith("file:") ? fileURLToPath(url) : url);
+      if (resolvedPath.startsWith(`${treeReal}${path.sep}`)) continue;
       /** Node built-ins never live in the tree and are not a leak. */
       if (url.startsWith("node:")) continue;
       escaped.push(`  ${name} (imported from ${path.relative(treeDir, dir) || "."}) -> ${resolvedPath}`);
@@ -531,6 +569,14 @@ function verifyResolution(config: HarnessConfig, treeDir: string): void {
 
   if (escaped.length) {
     throw new Error(`These imports resolve outside the tree, so both sides would load the same code:\n${escaped.join("\n")}`);
+  }
+}
+
+function realpathOr(target: string): string {
+  try {
+    return fs.realpathSync(target);
+  } catch {
+    return target;
   }
 }
 
