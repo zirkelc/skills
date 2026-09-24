@@ -55,13 +55,17 @@ gh label create "upstream:moved"       -R <owner>/issues -c fbca04 -d "Upstream 
 gh label create "upstream:unreachable" -R <owner>/issues -c 5319e7 -d "The upstream link no longer resolves"
 ```
 
-Then push the README and the workflow from this skill's `templates/` directory, which are
-the store's entire contents:
+Then push this skill's `templates/` directory, which is the store's entire contents:
 
 ```
 templates/README.md                              -> README.md
+templates/.github/ISSUE_TEMPLATE/tracker.md      -> .github/ISSUE_TEMPLATE/tracker.md
 templates/.github/workflows/upstream-check.yml   -> .github/workflows/upstream-check.yml
+templates/.github/scripts/upstream-check.js      -> .github/scripts/upstream-check.js
 ```
+
+Copy all four. The workflow requires the script at that exact path, and checks out the
+repository to reach it.
 
 Re-running any of this is a no-op. Deleting the nine default labels a new repository ships
 with is optional tidying, not part of the setup.
@@ -127,24 +131,12 @@ or invoked (`vitest`, `@sparticuz/chromium`, `release-please`), and the rest is 
 capability in the user's terms, not the maintainer's. Specific enough to recognise in a
 list a year from now.
 
-**Body:**
+**Body:** follow `.github/ISSUE_TEMPLATE/tracker.md` in the store, which is the canonical
+form. Read it rather than reproducing it from memory, and strip its `<!-- -->` guidance
+when filling it in:
 
-```markdown
-## Upstream
-- https://github.com/owner/repo/issues/123
-
-## What I need
-The capability or fix, in our terms. One or two sentences.
-
-## Where it bites
-- `~/Developer/acme-api` — `src/db/client.ts:41`, the retry loop only exists because of this
-- `rg 'RETRY_AROUND_5435' ~/Developer/acme-api` comes back empty once this is done
-
-## Workaround
-What happens instead today, and what it costs.
-
-## Notes
-Versions affected, alternatives already rejected, related threads.
+```bash
+gh api repos/<owner>/issues/contents/.github/ISSUE_TEMPLATE/tracker.md --jq .content | base64 -d
 ```
 
 Rules that matter more than the shape:
@@ -198,12 +190,9 @@ land with whatever change the user is already making.
 ### Review
 
 Show what is outstanding, grouped by what it asks of the user, because that is the
-interesting half:
-
-1. `upstream:fixed` — ready to adopt
-2. `upstream:declined` and `upstream:moved` — need a decision
-3. `upstream:unreachable` — need a look
-4. unlabelled — still waiting, nothing to do
+interesting half. The store's README defines what each label means; order the groups
+`upstream:fixed`, then `upstream:moved` and `upstream:declined`, then
+`upstream:unreachable`, then the unlabelled ones, which are merely still waiting.
 
 One line each: number, title, label, how long since it moved. Do not list closed trackers;
 "what am I waiting on" is not a question about finished work.
