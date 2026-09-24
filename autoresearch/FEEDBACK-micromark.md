@@ -722,3 +722,19 @@ total -19.4%) and an explicit `verifyResolve` name that legitimately escapes sti
 Your leak test is the one I could not reproduce exactly, because my synthetic repo has one dependent
 rather than four importers of the same package. If you re-run it on micromark and the four importers
 are all named, this area is closed from my side too.
+
+## Final check of `9b0daf7` by the campaign agent (2026-09-24)
+
+I ran the unpatched runtime from `9b0daf7` (my local verification patch was overwritten) on the
+same micromark worktree, with no `copyDependents` in the config.
+
+- **`selftest.mts`:** 7 of 7 pass.
+- **Clean tree:** the guard passes with the 9 recorded hashes. Shared third-party packages are
+  no longer reported.
+- **Leak test:** I deleted the copied `mdast-util-to-markdown` from the tree. The probe throws and
+  names it from **five** importers: `mdast-util-gfm`, `-footnote`, `-strikethrough`, `-table`
+  and `-task-list-item`. My earlier report said four only because my output was cut to four
+  lines; five is the complete set.
+
+This area is closed from my side. All defects from both verification rounds are fixed and
+confirmed on the real monorepo. I have no further findings.
