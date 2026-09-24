@@ -29,6 +29,8 @@ Resolve conflicts so that each branch contains only its own group's code:
 - When a conflict hunk contains code from another group, keep only the part that belongs to this group.
 - Afterwards, grep each branch for symbols introduced by the other groups. The count must be zero.
 
+Run the repo's full test suite **before** you copy the harness into the branch. The ignore entries that keep formatters and linters away from `perf/` live in the campaign's harness commit, not on a PR branch, so a copied-in harness fails the format gate on its own plan and scripts.
+
 Install dependencies, then regenerate every committed derived artifact (types, bundled output) and fold the result into the commit that causes it, rather than adding a "regenerate" commit on top. Only some branches will change generated files, and the campaign branch may never have built them at all.
 
 Then run the full test suite and the guard on each branch.
@@ -51,7 +53,7 @@ Run from the harness location (the campaign branch):
 
 Build the verification table from these runs, never from the campaign log: isolated effects differ from stacked ones.
 
-Where the stacked number differs materially from the isolated one, give both with the reason. This happens in both directions: a PR measured alone can look larger because it has the untouched path to itself, and a trade-off can look cheap alone but cost several percent once the other PRs removed the work that hid it. Two bodies of the same campaign must not state two different numbers for the same effect without explaining why.
+An asymptotic keep or a trade-off must be re-measured in isolation before its body is written. Suite neutrality in a stacked run is not evidence: one campaign's trade-off measured +0.25% stacked and +1.21% alone, and another's paired gain did not reproduce standalone at all. Where the stacked number differs materially from the isolated one, give both with the reason. This happens in both directions: a PR measured alone can look larger because it has the untouched path to itself, and a trade-off can look cheap alone but cost several percent once the other PRs removed the work that hid it. Two bodies of the same campaign must not state two different numbers for the same effect without explaining why.
 
 Optionally, run the repo's own benchmark on the base and on each branch as an external cross-check. Quote a figure only under the rules in `methodology.md` (elephants, or paired in-process references, with caveats stated).
 
@@ -71,7 +73,17 @@ Also follow the repo's own PR conventions (templates, AGENTS.md or CLAUDE.md rul
 
 ## 5. Confirm and create, one PR at a time
 
+Before any of this touches a remote, grep the plan, the log and the cases for private names, paths and hosts. PR bodies link the campaign branch publicly, and a plan written during the campaign names the downstream repo that motivated the work. One campaign published a private repository's name eight times that way. This is a blocking check, not a tidy-up.
+
+Check the base's own CI before you open anything. When a PR shows failing jobs, compare the failing set with the base's last run: a failure that also fails on the base is not yours, and saying so in the body saves the maintainer the same investigation. Occasionally the comparison finds a real bug in their CI, which is worth its own issue.
+
+Use the current PR template from the organisation (`.github/pull-request-template.md` in its `.github` repo), not the one copied from a merged PR, which may be an old revision. Keep machine markers such as `<!--do not edit: pr-->`, and tick only what is true.
+
+Put decision items (the ideas that would change behaviour, from the plan) into the body of the PR they relate to, as an open question for the maintainers, with the behaviour risk named.
+
 For each PR, show the user the title, the branch, the commits, the verification table and the body. Wait for confirmation. Then push with an explicit refspec and create the PR:
+
+In zsh, write the refspec with braces (`"${b}:refs/heads/${b}"`): `$b:refs/heads/...` is read as a history modifier and pushes the wrong ref. In general, prefer a script file over an inline shell loop, because the traps live in the quoting.
 
 ```sh
 git push <remote> <branch>:refs/heads/<branch>
@@ -83,5 +95,7 @@ If the user wants a staging round, create the PRs on their fork first, then tran
 If `gh pr create` fails with an API error, check with `gh pr view <branch> --repo <owner/repo>` whether the PR exists before you retry.
 
 While a PR waits, the base moves. Re-verify before you nudge it, and re-check the invariants from its body against current base: work that lands after you open a PR can add exactly the state your change assumed nobody would add, which turns a correct change into a broken one without touching its diff.
+
+When a scan or a profile finds the same bug in a dependency, treat that as a separate campaign in miniature: clone the dependency, run its own gates, compare two built copies of it (with an identical-copy control), and ask before creating a branch or a fork there.
 
 Afterwards, keep the campaign branch, the plan and the log. They are the reference when a reviewer asks about a discarded alternative, and when later PRs need a rebase after earlier ones land.

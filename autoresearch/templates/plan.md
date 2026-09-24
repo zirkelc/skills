@@ -19,16 +19,26 @@ Machine probe: min <a> ms, p50 <b> ms, max <c> ms (<x>% above min) <- must be qu
 TOTAL deltas: <a>, <b>, <c>      → noise floor <x>%
 GEOMEAN deltas: <a>, <b>, <c>    → noise floor <y>%
 
-Per-case bands from the same runs:
+Per-case bands: the spread of each case's median **across** the three runs (not the band printed
+inside one run, which is larger and answers a different question).
 
 | case | band | bar (2x band) |
 |---|---|---|
 | <case> | ±<x>% | <y>% |
 
+Re-controls during the campaign: <experiment, control delta, verdict>.
+
 **Keep bar: one summary clears <2x noise, min 1%>, the other does not regress beyond its band,
 confirmed by a second run.** Per-case rule: targeted case clears its own bar in both runs.
 
-Budget: one A/B run takes <n> min; <k> experiments x 2.5 = about <h> h of measurement.
+Budget: one A/B run takes <n> min; <k> experiments x 2.5 = about <h> h of measurement, plus
+<w> min of waiting per run for a quiet machine.
+
+## Scaling scan (step 5)
+
+| shape | n | 4n | ratio | verdict |
+|---|---|---|---|---|
+| <shape> | <ms> | <ms> | <x> | linear / superlinear |
 
 ## Baseline
 
@@ -50,7 +60,8 @@ Profile summary: <where the time goes, top self-time frames>.
 ## Experiment notes
 
 <One short section per experiment: approach, reasoning, result, and how complexity was
-weighed against the gain.>
+weighed against the gain. Mark near misses (below the bar but above half of it) so a later
+experiment in the same area can bundle them. Record which experiment added a case, if any.>
 
 ## Final summary
 

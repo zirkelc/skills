@@ -108,6 +108,12 @@ async function measure(entryFirst: string, entrySecond: string): Promise<Array<R
       ratios.push(tB / tA);
     }
     ratios.sort((x, y) => x - y);
+    /** A body outside this range makes the instrument worse: above 50 ms it contains a collection,
+     * below 1 ms it is dominated by jitter. Say so once, while the fixtures are still cheap to change. */
+    const bodyMs = minA / reps / 1_000_000;
+    if (bodyMs > 50 || bodyMs < 1) {
+      console.error(`warning: case "${a.name}" runs ${bodyMs.toFixed(2)} ms per body, outside the 1 to 50 ms range`);
+    }
     a.teardown?.();
     b.teardown?.();
     rows.push({
@@ -121,6 +127,8 @@ async function measure(entryFirst: string, entrySecond: string): Promise<Array<R
   }
   return rows;
 }
+
+const seenWarnings = new Set<string>();
 
 function child(entryFirst: string, entrySecond: string): Array<Row> {
   const self = fileURLToPath(import.meta.url);
@@ -144,6 +152,14 @@ function child(entryFirst: string, entrySecond: string): Array<Row> {
     { encoding: "utf8", maxBuffer: 64 * 1024 * 1024, stdio: ["ignore", "pipe", "pipe"] }
   );
   if (res.status !== 0) throw new Error(`child failed:\n${res.stderr}`);
+  /** Children warn about unusable case sizes; every child repeats the same warning, so print each
+   * distinct line once rather than four times. */
+  for (const line of (res.stderr ?? "").split("\n").filter(Boolean)) {
+    if (!seenWarnings.has(line)) {
+      seenWarnings.add(line);
+      console.error(line);
+    }
+  }
   const lines = res.stdout.trim().split("\n");
   return JSON.parse(lines[lines.length - 1]);
 }

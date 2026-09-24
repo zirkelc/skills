@@ -36,7 +36,7 @@ Report to the user:
 - Whether a benchmark exists (framework, what it measures, on which inputs), its metric, whether lower or higher is better, and how long one full run takes.
 - Whether the tests pin observable behaviour, or only a subset.
 - Whether the repo ships a build that is sold on size (a mini, browser or edge entry point), whether a size budget is enforced anywhere, and on which bytes. A change that adds a code path adds bytes to every build that includes it, and a size-sensitive project will reject a real time win that breaks its budget.
-- Which artifacts are derived, which of them are committed, and which artifact each gate consumes. A repo that commits build output can run its tests against one artifact while the harness measures another. Answer it explicitly: if the tests load `cjs/` and you change `src/`, every guard run is green for the wrong reason.
+- Which artifacts are derived, which of them are committed or gitignored, and which artifact each gate consumes. A repo that commits or generates build output can run its tests against one artifact while the harness measures another: if the tests load `cjs/` and you change `src/`, every guard run is green for the wrong reason. If the shipped artifact is generated, the harness has to build every revision itself, and no side may fall back to whatever lies on disk, or an edit leaves one side measuring the previous experiment.
 - Which metric the maintainers actually accept. Look at merged perf PRs and their titles. Time is the default, but some maintainers value memory per instance or compressed bundle size more, and they reject wins on a metric they do not value. `references/methodology.md` (Other metrics) describes how to measure each one.
 
 **Use what is there. Do not replace it.** An existing benchmark encodes what the maintainers consider representative. If it is inadequate, say so and propose an extension. If there is no benchmark, build the smallest one that exercises the real workload on realistic inputs, and confirm the workload choice with the user.
@@ -49,7 +49,7 @@ Performance work that changes behaviour is not an optimisation. Before the first
 
 If the test suite pins observable output, use it. If not, add a characterisation guard: run the current code over the benchmark inputs and record the results (return values, error messages and issue lists, or a hash of them if they are large). This captures current behaviour as-is, including bugs. The point is to prove that each change preserves behaviour, not that the code is correct.
 
-A guard proves behaviour on the inputs you chose, and nothing else. Choose them so that the cheap wins of this kind of work are observable: if the library memoizes, caches or otherwise shares structures between results, include an input where the same object is reachable twice (a shared node, a cycle, a repeated reference). Without such an input, every change that stops copying something looks behaviour-preserving.
+A guard proves behaviour on the inputs you chose, and nothing else. A change whose risky inputs the suite does not cover (long inputs, edge cases, anything a rewritten parser or resolver might handle differently) needs a differential run before it is kept: both revisions over generated and hand-picked inputs, compared on everything observable, structure as well as rendered output. Choose them so that the cheap wins of this kind of work are observable: if the library memoizes, caches or otherwise shares structures between results, include an input where the same object is reachable twice (a shared node, a cycle, a repeated reference). Without such an input, every change that stops copying something looks behaviour-preserving.
 
 Make the benchmark cases deterministic (seeded random data), so that the same case definitions feed both the guard and the A/B harness. Each runtime folder ships a guard script for this.
 
@@ -72,12 +72,14 @@ Comparing two separate benchmark runs does not work at the effect sizes of this 
 
 Copy the matching runtime folder into the repo (for example `perf/`) and adapt the documented extension points. If no folder fits the target runtime, write one against the contract in `runtimes/README.md`, which also describes the out-of-process pattern for runtimes that cannot load two revisions at once. Budget an hour for that, and treat the new harness itself as the first experiment: the canary and the control runs below decide whether it measures anything.
 
-Keep all harness scratch directories out of git. Prefer `.git/info/exclude` over `.gitignore`, so the exclusions do not leak into the commits that later become PRs.
+Keep the harness scratch directories where no tool looks: inside `node_modules`. Every formatter, linter, type checker and test glob already ignores that directory, and the runtime still resolves dependencies upward from it. `.git/info/exclude` hides a directory from git and from nothing else, so it is the wrong tool for this and the right one for the plan and the log.
+
+The harness sources themselves are visible, so check each formatter, linter and type checker for whether it reaches them, and add the ignore entries in the harness commit, where they stay out of every later PR.
 
 Before you trust the harness, run a **canary** twice, once for each instrument:
 
 - For the harness: put a deliberate slowdown (a short busy loop) into one function in the working tree, and compare `HEAD` with the working tree. Only the cases that call that function must slow down. If no case moves, or all cases move, the harness does not measure the revision you think it measures (typical cause: a materialised tree that still imports code from the working tree).
-- For the gates: with that same edit in place, run the guard and the tests **without** regenerating any derived artifact. At least one of them must fail. If they all pass, they are reading an artifact your changes never reach, and every later green run means nothing.
+- For the gates: a **different** edit, one that changes output rather than timing (return a wrong value from a function the cases reach). Run the guard and the tests without regenerating any derived artifact. At least one of them must fail. If they all pass, they read an artifact your changes never reach, and every later green run means nothing. A slowdown cannot serve here: no gate can fail on timing.
 
 Remove the canary before you continue.
 
@@ -91,9 +93,11 @@ Record in the plan:
 
 - The probe numbers (min, p50, max), so a later reader can tell a quiet campaign from a noisy one.
 - The noise floor for **both** summary numbers, the time-weighted total and the equally weighted geometric mean.
-- The band of **each case**, taken from the same three runs. Bands differ by a factor of three between large and short cases, so a single default would keep noise in one case and discard a real effect in another.
+- The band of **each case**: the spread of that case's medians **across** the three runs, not the interquartile range printed inside one run. The two differ by an order of magnitude (across runs: under 2%; within a run: 5 to 15%), and the bar has to be compared with a quantity measured the same way as the effect. Bands differ by a factor of three between large and short cases, so a single default would keep noise in one case and discard a real effect in another.
 - The keep bar: about twice the noise floor, never below 1%.
-- One run's duration multiplied by about 2.5 times the experiment budget (every kept change needs a confirmation run, and the gates are not free). If that does not fit the session, tune the iteration and child counts now and say what the budget means in hours.
+- One run's duration multiplied by about 2.5 times the experiment budget (every kept change needs a confirmation run, and the gates are not free), plus the waiting. On a shared machine the wait for a quiet probe can exceed the measurement several times over, and it is the number that decides whether a budget fits a session.
+
+The machine does not stay as it was. Re-run an identical-code control every few experiments, and whenever the bands look wider than at calibration. If a control exceeds the floor, recalibrate, raise the bar, and re-confirm the keeps made since the last good control. Record in the log when a run started on a busy probe, and treat that run as invalid rather than as data.
 
 ## Step 5: Baseline and plan
 
@@ -101,11 +105,14 @@ Run the tests and the benchmark unchanged, and record the numbers. Profile the w
 
 Write the plan from `templates/plan.md` and the log from `templates/experiments.tsv` (tab-separated, because commas break descriptions): what the repo does, what the benchmark measures, baseline numbers, noise floor, keep bar, and an initial candidate list ranked by profile weight.
 
+Run a **scaling scan** before you list candidates: time each input shape at size n and at 4n. Linear work costs about four times more; a ratio well above that marks a superlinear path. These are invisible to a benchmark built on realistic sizes and cost five to twenty times on long input, so they are the one class of win the suite cannot find for you. Profile every shape the scan flags, and look for mid-array `splice`, `shift`, `unshift` or `indexOf` inside a loop over the same array.
+
 Where the large wins usually are:
 
 - **Work at construction that most callers never use.** An error message formatted eagerly although most callers only read the issue list; per-instance closures for rarely used methods; a lazy value that a subclass constructor forces immediately, which defeats its lazy design.
 - **Failure paths.** Errors often cost 10 to 50 times more than successes, and benchmarks rarely cover them.
 - **Allocations per call on leaf paths.** When one call takes nanoseconds, one object less per call can be 15%.
+- **Superlinear paths**, from the scan above. Three fixes work repeatedly: compaction in one pass (a write index, then one truncation) instead of a removal per item; a working array that the walk fills, so removals stay near its end and the tail never shifts; and deferring a copy until the first mutation, so inputs without a match pay nothing. Measure the normal-input cost of each: a structure that is linear in theory can lose more on the hot path than it saves.
 
 A code comment that documents a performance trade-off (for example "kept eager for monomorphic call sites") is evidence. Test it with one experiment if you doubt it, then accept the result. In one campaign, reversing such a trade-off regressed hot paths by 11 to 38%.
 
@@ -113,15 +120,18 @@ Keep the plan and the log out of git while the loop runs, because a discard rese
 
 ## Step 6: Rules
 
-- Only changes to the implementation count. Never touch the benchmark, its inputs, or the guard to move the numbers.
+- Only changes to the implementation count. Never edit the benchmark, its inputs, or the guard to move the numbers. Adding a case is allowed, and sometimes necessary (a long-input case for a superlinear path): record its expectation against the base revision, leave every existing case and expectation untouched, and say in the log which experiment added it.
 - Judge every change with the A/B comparison against the previous commit.
 - Discard anything under the bar immediately. At or above it, run the comparison a second time and keep the change only if both runs clear the bar. First runs mislead: one experiment measured -3.2% and then +0.4%.
 - Log every discard with its measured delta, and mark anything above roughly half the bar as a **near miss**. Effects under the bar are still effects: when you later touch the same area, bundle the near misses in. One campaign recovered a whole PR that way, six experiments after the original discard.
 - A change that targets one path may keep on a per-case rule: the targeted case clears twice its own band from step 4 in both runs, and the summaries do not regress. Say so in the log.
-- A marked row (the harness flags a band that contains 0%, or one that is wide against its median) says that **this run** does not confirm it, not that the change does nothing. Use the second run, and a standalone run when the row is a case the change did not touch. A row marked in both runs is no effect; a row marked once and clean once is a noisy case with a real effect.
+- A change may keep as **asymptotic** when it makes a superlinear path linear: the suite is neutral inside its floor, and the targeted long input is measured standalone in two runs with an effect far above cross-run drift. Output on the targeted inputs must be identical, which needs a differential run, and the suite cost must be re-measured in isolation during packaging, because a stacked run can hide it.
+- A marked row (the harness flags a band that contains 0%, or one that is wide against its median) says that **this run** does not confirm it, not that the change does nothing. It never overrides two runs that agree: when the two medians agree and clear the case's bar, a standalone run decides, not the marker. A row marked in both runs whose medians do **not** agree is no effect.
 - Simpler is better, all else equal. The bar gates changes that add complexity. A change that removes code and is performance-neutral is worth keeping. A win that adds a cache with a subtle invariant probably is not. Record how you weighed it.
 - A change whose correctness rests on the rest of the codebase keeping an invariant ("nothing writes to this shared object", "this structure is never aliased") costs more than its diff: it constrains future work, and a later, unrelated change can break it without touching your code. Name the invariant in the log and in the PR body, and weigh it as complexity, not as a free win.
 - If the total improves but a single case clearly regresses, say so instead of hiding it in the average.
+- While an A/B run is in progress, start nothing else: no build, no test, no profile. They compete for the same cores and skew the run that is deciding your experiment. Read code instead.
+- Run the gates through one script that regenerates derived artifacts first (`templates/gates.example.sh`). Ordering a gate before the step that generates what it reads is the same failure as having no gate.
 - Measure the compressed size delta of every change that adds a code path (a fast path, a cache, a new branch), and weigh it with the time delta. In a project with a size budget, bytes can reject a real win.
 - A change that removes a defensive copy, or that starts mutating in place, needs an input where the aliasing is observable before the guard means anything. Add that case first, then make the change.
 - Regenerate every committed derived artifact before the guard and the tests, and again after a discard: `git reset --hard` restores the sources but leaves the generated files of the abandoned experiment in place.
@@ -152,6 +162,8 @@ One small, isolated change at a time:
 Never stop because you ran out of ideas. An idea that would change behaviour or needs a redesign is a reason to log it as a decision item and move on.
 
 Then summarise in the plan: what was kept, what was rejected and why, the cumulative improvement (one A/B of the pre-loop commit against the final commit, run twice), and what is left worth trying. Also run the repo's own benchmark as an external cross-check and report it with its caveats. Commit the plan and the log.
+
+**If the budget is extended after that summary**, the plan and the log are now tracked, so a discard would revert log rows with the code. Three rules keep the loop working: commit experiments by explicit path rather than with `-a`, give each log row its own commit, and A/B against the last **code** commit, which is `HEAD~2` when a log commit sits in between.
 
 ## Step 9: Package kept commits as PRs
 

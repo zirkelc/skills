@@ -1,6 +1,8 @@
 # node-ts runtime
 
-In-process A/B harness for JavaScript and TypeScript libraries on Node.js (tested with Node 24 and `tsx`).
+In-process A/B harness for JavaScript and TypeScript libraries on Node.js.
+
+Node 24 runs the `.mts` files directly (it strips the types), so the harness itself needs no loader and the target repo's manifest can stay untouched, which matters when you are about to send that repo a PR. The library under test decides whether that is enough: plain JavaScript sources, or TypeScript that Node can strip, run as they are. Sources that rely on a loader's resolution (TypeScript files imported through `.js` specifiers, path aliases, custom conditions) still need `tsx`, so run every command through `pnpm exec tsx` instead. Check once with `node perf/guard.mts` before adding a dependency.
 
 ## Files
 
@@ -9,7 +11,9 @@ In-process A/B harness for JavaScript and TypeScript libraries on Node.js (teste
 | `harness.mts` | Shared helpers: config, `git archive` materialisation, case loading, seeded `rng`, `fnv1a`, `timeNs` |
 | `ab.mts` | Paired timing of two revisions, both load orders, median of paired ratios |
 | `guard.mts` | Characterisation guard over the cases' `collect()` samples |
-| `jitter.mts` | Machine-readiness probe. Run before calibrating and before every confirmation run |
+| `jitter.mts` | Machine-readiness probe, with a wait mode. Run before calibrating and before every run |
+| `scan.mts` | Scaling scan: each input shape at n and 4n, to find superlinear paths |
+| `differential.mts` | Compares two revisions over generated and edge-case inputs, beyond the guard |
 | `solo.mts` | One case, one revision, its own process. Confirms a suspicious per-case delta |
 | `mem.mts` | Retained bytes per instance, for cases that define `alloc()` |
 | `profile.mts` | In-process CPU profile of the cases, aggregated per function |
@@ -25,18 +29,35 @@ In-process A/B harness for JavaScript and TypeScript libraries on Node.js (teste
    - `src`: the paths archived per revision. Include every directory the entry imports by relative path. Workspace packages imported **by name** resolve through `node_modules` to the working tree, not to the archived revision. Add them to `src` and import them by path, or accept that they are shared between sides.
    - `cases`: the cases module (default `perf/cases.mts`).
 4. Write `perf/cases.mts` from `cases.example.mts`. Mirror the workloads of the repo's existing benchmarks and use seeded data only.
-5. Exclude scratch paths from git without touching tracked files:
+5. Trees go to `node_modules/.perf-trees/` automatically, where every tool already ignores them. Only `.perf-prof/` needs an exclude entry:
    ```sh
-   printf '.perf-trees/\n.perf-prof/\n' >> "$(git rev-parse --git-common-dir)/info/exclude"
+   printf '.perf-prof/\n' >> "$(git rev-parse --git-common-dir)/info/exclude"
    ```
-   Commit the harness itself (`perf/*.mts`, `perf.config.json`, `guard-expected.json`) together with the guard, before the first experiment.
+   That hides it from git and from nothing else, so check whether the repo's formatter, linter or type checker reaches `perf/` itself, and add their ignore entries in the harness commit. Commit the harness (`perf/*.mts`, `perf.config.json`, `guard-expected.json`) with the guard, before the first experiment.
+
+## Generated builds and monorepos
+
+Extra config keys, all optional, for repos where the sources are not what users load:
+
+| key | purpose |
+|---|---|
+| `build` | Command run in each tree after unpacking. Set it whenever the shipped artifact is generated, especially when it is gitignored. The working tree is then materialised and built too, keyed by the content of its sources, so no side can measure a stale artifact. |
+| `buildWorkspaces` | Command run per workspace, in the root manifest's order, for builds where a package needs its dependencies built first. |
+| `copyDependents` | Regular expression over the root `node_modules`. Matching packages are copied into the tree, dereferenced. Needed for third-party packages that import the workspace packages by name: a symlink resolves to its realpath and would pull the working tree's code back in. |
+| `entryModules` | Map of alias to specifier. The harness writes a `perf-entry.mjs` per tree that re-exports them, so the cases get one `lib` whose parts all come from one revision. |
+| `verifyResolve` | Package names whose resolution must stay inside the tree. Checked at materialisation, before any measurement. |
+
+Packages inside the tree are always linked into its own `node_modules`, so workspace packages that import each other by name resolve within the tree.
 
 ## Commands
 
 Run through the repo's package manager so the local `tsx` is used, for example `pnpm exec tsx`.
 
 ```sh
-pnpm exec tsx perf/jitter.mts                   # is the machine quiet enough to measure?
+node perf/jitter.mts                            # is the machine quiet enough to measure?  (no loader needed)
+node perf/jitter.mts --max 1.5 --wait 10        # wait up to 10 min for a quiet machine, then exit 0
+node perf/scan.mts                              # scaling scan: n against 4n per input shape
+node perf/differential.mts main WORKTREE        # behaviour on inputs the guard does not cover
 pnpm exec tsx perf/guard.mts --update           # once, before the first experiment
 pnpm exec tsx perf/guard.mts                    # before every experiment commit
 pnpm exec tsx perf/ab.mts main main             # noise control (discard the first, cold run)
@@ -46,6 +67,8 @@ pnpm exec tsx --expose-gc perf/solo.mts main query-large    # confirm one case, 
 pnpm exec tsx perf/mem.mts main HEAD            # bytes per instance, cases with alloc()
 pnpm exec tsx perf/profile.mts                  # all cases, 4 s
 pnpm exec tsx perf/profile.mts fail-case --seconds 2 --top 15 --deps
+pnpm exec tsx perf/profile.mts --callers resolveAll   # who calls the hot function
+pnpm exec tsx perf/profile.mts --lines resolveAll     # which statements inside it are hot
 ```
 
 Every script also takes `--entry`, `--src` (repeatable) and `--cases` to override the config. `ab.mts` takes `--iters` (25), `--warmup` (3), `--target-ms` (1.5 per timed iteration) and `--repeats` (1 child per load order).
@@ -73,5 +96,7 @@ Per case, `ab.mts` prints the minimum ms of one body for A and B, the delta, the
 - **Let a case own its inputs.** Build them in `setup`, drop them in `teardown`. Inputs of every case held alive for a whole run exist twice, once per revision, and make every later collection slower on both sides. A workload that mutates its input has to rebuild it in `setup` or inside `run`.
 - **Forced collection hides part of the cost.** The children run with `--expose-gc` and collect before every timed body, which stops one side from paying for the other side's garbage. It also means a change that allocates more garbage looks cheaper here than in production, so measure such changes with `mem.mts` as well.
 - **Two revisions, one process.** Both revisions share the heap, and shared code sees their objects as polymorphic. A per-case delta on code that neither revision touched is not a result until `solo.mts` agrees with it: one campaign measured +21% paired against -3% standalone on such a case. The cases module is loaded once per side (a `?slot=` query on the import), which removes one source of this, not the artefact itself.
+- **Two revisions share more than code.** Anything a library keeps on `globalThis` (config, registries, caches) belongs to whichever instance initialised last, for both sides. Timing survives it, since both sides then use the same state, but never compare behaviour in one process: `differential.mts` spawns one process per revision for exactly this reason.
+- **A wide within-run band is not a small effect.** The marker uses the dispersion inside one run; the per-case bar uses the spread of medians across calibration runs. A short case can be marked in both runs and still carry a real effect that both runs agree on. Resolve it with `solo.mts`, not with the marker.
 - **ESM only.** Keep the harness as `.mts`. `import.meta.dirname` is undefined under CommonJS, and the failure looks like an unrelated path error.
 - **Module names.** Do not name a module like a sibling directory: `dataset.ts` next to `dataset/` resolves to the directory.

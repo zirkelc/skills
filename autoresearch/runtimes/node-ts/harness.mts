@@ -2,7 +2,8 @@
  * Shared helpers for the node-ts autoresearch harness: configuration, revision
  * materialisation, case loading and deterministic data helpers.
  */
-import { execFileSync } from "node:child_process";
+import { execFileSync, execSync } from "node:child_process";
+import * as crypto from "node:crypto";
 import * as fs from "node:fs";
 import * as path from "node:path";
 import { pathToFileURL } from "node:url";
@@ -43,6 +44,31 @@ export interface HarnessConfig {
   src: Array<string>;
   /** Cases module, relative to the repo root. */
   cases: string;
+  /**
+   * Command that turns the sources of a tree into what users load, run with the tree root as the
+   * working directory. Set it whenever the shipped artifact is generated, especially when it is
+   * gitignored: without it the harness would measure whatever happens to lie on disk.
+   */
+  build?: string | undefined;
+  /**
+   * Command run once per workspace, in the order of the root manifest's `workspaces` field, for
+   * builds where a package needs its dependencies built first.
+   */
+  buildWorkspaces?: string | undefined;
+  /**
+   * Third-party packages that import the workspace packages by name. They are copied into the
+   * tree (a symlink would resolve to its realpath and pull in the working tree again). Matched as
+   * a regular expression against the directory names in the root `node_modules`.
+   */
+  copyDependents?: string | undefined;
+  /**
+   * Generates the tree's entry from a map of alias to specifier, so the cases receive one `lib`
+   * whose parts all come from the same revision. Specifiers are package names or paths relative to
+   * the tree root. When set, this replaces `entry` as the imported module.
+   */
+  entryModules?: Record<string, string> | undefined;
+  /** Package names whose resolution must stay inside the tree. Checked once per materialisation. */
+  verifyResolve?: Array<string> | undefined;
 }
 
 const CONFIG_FILE = "perf.config.json";
@@ -78,40 +104,181 @@ export function loadConfig(
   if (!entry || !src?.length) {
     throw new Error(`Set "entry" and "src" in ${configPath} or pass --entry and --src.`);
   }
-  return { config: { root, entry, src, cases }, positionals, values };
+  return {
+    config: {
+      root,
+      entry,
+      src,
+      cases,
+      build: fileConfig.build,
+      buildWorkspaces: fileConfig.buildWorkspaces,
+      copyDependents: fileConfig.copyDependents,
+      entryModules: fileConfig.entryModules,
+      verifyResolve: fileConfig.verifyResolve,
+    },
+    positionals,
+    values,
+  };
 }
 
 /**
- * Unpacks `src` paths of `rev` into `.perf-trees/<sha>-<slot>` inside the repo and returns
- * the absolute entry path in that tree. The tree lives inside the repo because Node resolves
- * dependencies by walking up from the importing file. One directory per slot means that
- * comparing a revision with itself still loads two separate module instances.
+ * Trees live under `node_modules/.perf-trees` when that directory exists. Everything in a repo
+ * already ignores `node_modules`: formatters, linters, type checkers and test globs. `.git/info/
+ * exclude` only hides a directory from git, which is not the same thing and was not enough.
+ */
+function treesDir(config: HarnessConfig): string {
+  const inNodeModules = path.join(config.root, "node_modules");
+  const base = fs.existsSync(inNodeModules) ? inNodeModules : config.root;
+  return path.join(base, ".perf-trees");
+}
+
+/** Content hash of the working tree's tracked and untracked source files. */
+function worktreeKey(config: HarnessConfig): string {
+  const listed = execFileSync("git", ["ls-files", "-co", "--exclude-standard", "--", ...config.src], {
+    cwd: config.root,
+    maxBuffer: 1 << 28,
+  })
+    .toString()
+    .split("\n")
+    .filter(Boolean)
+    .sort();
+  const hash = crypto.createHash("sha1");
+  for (const rel of listed) {
+    hash.update(rel);
+    hash.update("\0");
+    try {
+      hash.update(fs.readFileSync(path.join(config.root, rel)));
+    } catch {
+      /* deleted between listing and reading */
+    }
+  }
+  return `wt-${hash.digest("hex").slice(0, 16)}`;
+}
+
+/**
+ * Materialises `rev` into its own directory and returns the absolute entry path inside it.
+ *
+ * One directory per slot, so a revision compared with itself still gives two real copies. The
+ * working tree is materialised too whenever a build is configured, and keyed by the content of its
+ * sources: an unchanged tree reuses its build, any edit produces a new one, and no side can fall
+ * back to a stale artifact on disk.
  */
 export function materialise(config: HarnessConfig, rev: string, slot: string): string {
-  if (rev === WORKTREE) return path.join(config.root, config.entry);
+  const builds = Boolean(config.build || config.buildWorkspaces);
+  if (rev === WORKTREE && !builds) return entryPath(config, config.root);
 
-  const sha = execFileSync("git", ["rev-parse", `${rev}^{commit}`], { cwd: config.root }).toString().trim();
-  const treesDir = path.join(config.root, ".perf-trees");
-  const dir = path.join(treesDir, `${sha}-${slot}`);
+  const key =
+    rev === WORKTREE
+      ? worktreeKey(config)
+      : execFileSync("git", ["rev-parse", `${rev}^{commit}`], { cwd: config.root }).toString().trim();
+  const dir = path.join(treesDir(config), `${key}-${slot}`);
 
   if (!fs.existsSync(dir)) {
     const tmp = `${dir}.tmp-${process.pid}`;
     fs.mkdirSync(tmp, { recursive: true });
-    const tar = execFileSync("git", ["archive", "--format=tar", sha, "--", ...config.src], {
-      cwd: config.root,
-      maxBuffer: 1 << 30,
-    });
-    execFileSync("tar", ["-x", "-C", tmp], { input: tar });
+    if (rev === WORKTREE) {
+      copyWorktree(config, tmp);
+    } else {
+      const tar = execFileSync("git", ["archive", "--format=tar", key, "--", ...config.src], {
+        cwd: config.root,
+        maxBuffer: 1 << 30,
+      });
+      execFileSync("tar", ["-x", "-C", tmp], { input: tar });
+    }
+    linkWorkspacePackages(config, tmp);
+    copyDependents(config, tmp);
     linkNodeModules(config, tmp);
+    writeGeneratedEntry(config, tmp);
+    runBuild(config, tmp);
     fs.renameSync(tmp, dir);
   }
-  return path.join(dir, config.entry);
+  verifyResolution(config, dir);
+  return entryPath(config, dir);
+}
+
+function entryPath(config: HarnessConfig, treeDir: string): string {
+  return path.join(treeDir, config.entryModules ? "perf-entry.mjs" : config.entry);
+}
+
+/** Copies the working tree's source files, tracked and untracked, ignoring what git ignores. */
+function copyWorktree(config: HarnessConfig, treeDir: string): void {
+  const listed = execFileSync("git", ["ls-files", "-co", "--exclude-standard", "--", ...config.src], {
+    cwd: config.root,
+    maxBuffer: 1 << 28,
+  })
+    .toString()
+    .split("\n")
+    .filter(Boolean);
+  for (const rel of listed) {
+    const target = path.join(treeDir, rel);
+    fs.mkdirSync(path.dirname(target), { recursive: true });
+    fs.copyFileSync(path.join(config.root, rel), target);
+  }
+}
+
+/** Every package inside the tree becomes resolvable by name from within the tree. */
+function linkWorkspacePackages(config: HarnessConfig, treeDir: string): void {
+  const modulesDir = path.join(treeDir, "node_modules");
+  for (const src of config.src) {
+    for (const pkgDir of findPackages(path.join(treeDir, src))) {
+      let name: string;
+      try {
+        name = JSON.parse(fs.readFileSync(path.join(pkgDir, "package.json"), "utf8")).name;
+      } catch {
+        continue;
+      }
+      if (!name) continue;
+      const link = path.join(modulesDir, name);
+      if (fs.existsSync(link)) continue;
+      fs.mkdirSync(path.dirname(link), { recursive: true });
+      fs.symlinkSync(path.relative(path.dirname(link), pkgDir), link, "dir");
+    }
+  }
+}
+
+function findPackages(dir: string): Array<string> {
+  if (!fs.existsSync(dir)) return [];
+  const found: Array<string> = [];
+  if (fs.existsSync(path.join(dir, "package.json"))) found.push(dir);
+  for (const entry of fs.readdirSync(dir, { withFileTypes: true })) {
+    if (entry.isDirectory() && entry.name !== "node_modules") {
+      found.push(...findPackages(path.join(dir, entry.name)));
+    }
+  }
+  return found;
 }
 
 /**
- * Workspace packages often keep their own `node_modules` next to their sources. The unpacked
- * tree does not contain them, so link every `node_modules` that exists between a source path
- * and the repo root. The root `node_modules` is reached by normal upward resolution.
+ * Third-party packages that import the workspace packages by name need a real copy in the tree.
+ * A symlink resolves to its realpath in the root `node_modules`, and from there the package would
+ * import the working tree's code again, which puts one revision on both sides of the comparison.
+ */
+function copyDependents(config: HarnessConfig, treeDir: string): void {
+  if (!config.copyDependents) return;
+  const pattern = new RegExp(config.copyDependents);
+  const rootModules = path.join(config.root, "node_modules");
+  if (!fs.existsSync(rootModules)) return;
+  const names: Array<string> = [];
+  for (const entry of fs.readdirSync(rootModules, { withFileTypes: true })) {
+    if (entry.name.startsWith(".")) continue;
+    if (entry.name.startsWith("@")) {
+      for (const scoped of fs.readdirSync(path.join(rootModules, entry.name))) names.push(`${entry.name}/${scoped}`);
+    } else {
+      names.push(entry.name);
+    }
+  }
+  for (const name of names.filter((n) => pattern.test(n))) {
+    const target = path.join(treeDir, "node_modules", name);
+    if (fs.existsSync(target)) continue;
+    fs.mkdirSync(path.dirname(target), { recursive: true });
+    fs.cpSync(path.join(rootModules, name), target, { recursive: true, dereference: true });
+  }
+}
+
+/**
+ * Workspace packages often keep their own `node_modules` next to their sources. Link the ones that
+ * exist between a source path and the repo root; the root `node_modules` is reached by normal
+ * upward resolution.
  */
 function linkNodeModules(config: HarnessConfig, treeDir: string): void {
   for (const src of config.src) {
@@ -124,6 +291,66 @@ function linkNodeModules(config: HarnessConfig, treeDir: string): void {
       }
       rel = path.dirname(rel);
     }
+  }
+}
+
+/** Writes an entry that re-exports the library and the ecosystem pieces the cases need. */
+function writeGeneratedEntry(config: HarnessConfig, treeDir: string): void {
+  if (!config.entryModules) return;
+  const lines = Object.entries(config.entryModules).map(([alias, specifier]) => {
+    const target = specifier.startsWith(".") || specifier.includes("/") && fs.existsSync(path.join(treeDir, specifier))
+      ? `./${path.relative(treeDir, path.join(treeDir, specifier))}`
+      : specifier;
+    return `export * as ${alias} from ${JSON.stringify(target)};`;
+  });
+  fs.writeFileSync(path.join(treeDir, "perf-entry.mjs"), `${lines.join("\n")}\n`);
+}
+
+/** Runs the repo's build inside the tree, in workspace order when the build needs it. */
+function runBuild(config: HarnessConfig, treeDir: string): void {
+  const env = { ...process.env, PATH: `${path.join(config.root, "node_modules", ".bin")}:${process.env.PATH ?? ""}` };
+  if (config.buildWorkspaces) {
+    for (const workspace of workspaceOrder(config)) {
+      const cwd = path.join(treeDir, workspace);
+      if (!fs.existsSync(cwd)) continue;
+      execSync(config.buildWorkspaces, { cwd, env, stdio: "inherit" });
+    }
+  }
+  if (config.build) execSync(config.build, { cwd: treeDir, env, stdio: "inherit" });
+}
+
+/** The root manifest's `workspaces` order, which is the order a dependency-aware build needs. */
+function workspaceOrder(config: HarnessConfig): Array<string> {
+  try {
+    const manifest = JSON.parse(fs.readFileSync(path.join(config.root, "package.json"), "utf8"));
+    const workspaces = Array.isArray(manifest.workspaces) ? manifest.workspaces : (manifest.workspaces?.packages ?? []);
+    return workspaces.filter((w: string) => !w.includes("*"));
+  } catch {
+    return [];
+  }
+}
+
+/**
+ * Asserts that the configured package names resolve inside the tree. A resolution that escapes to
+ * the repo root puts the working tree's code on both sides of the comparison, which produces
+ * plausible numbers and no symptom, so this runs before any measurement rather than after one.
+ */
+function verifyResolution(config: HarnessConfig, treeDir: string): void {
+  if (!config.verifyResolve?.length) return;
+  const probe = path.join(treeDir, "perf-resolve-check.mjs");
+  fs.writeFileSync(
+    probe,
+    `const names = ${JSON.stringify(config.verifyResolve)};\n` +
+      `const out = {};\nfor (const n of names) { try { out[n] = import.meta.resolve(n); } catch (e) { out[n] = String(e); } }\n` +
+      `console.log(JSON.stringify(out));\n`
+  );
+  const resolved = JSON.parse(execFileSync(process.execPath, [probe], { encoding: "utf8" }));
+  const escaped = Object.entries(resolved).filter(([, url]) => !String(url).includes(treeDir));
+  if (escaped.length) {
+    throw new Error(
+      `These packages resolve outside the tree, so both sides would load the same code:\n` +
+        escaped.map(([name, url]) => `  ${name} -> ${url}`).join("\n")
+    );
   }
 }
 

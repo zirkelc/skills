@@ -18,6 +18,8 @@ const { config, positionals, values } = loadConfig(HARNESS_DIR, process.argv.sli
   seconds: { type: "string" },
   top: { type: "string" },
   deps: { type: "boolean" },
+  callers: { type: "string" },
+  lines: { type: "string" },
 });
 /** Dependency frames matter when the library hands its hot loops to them (parser, selector engine). */
 const DEPS = Boolean(values.deps);
@@ -57,6 +59,7 @@ interface ProfileNode {
   children?: Array<number>;
 }
 const nodes: Array<ProfileNode> = profile.nodes;
+const byId = new Map<number, ProfileNode>(nodes.map((n) => [n.id, n]));
 const parent = new Map<number, number>();
 for (const n of nodes) for (const c of n.children ?? []) parent.set(c, n.id);
 
@@ -77,13 +80,17 @@ for (const [id, t] of selfTime) {
 const rootUrl = `file://${config.root}/`;
 function label(n: ProfileNode): string | null {
   const { url, functionName, lineNumber } = n.callFrame;
-  if (url.startsWith("node:") || (url.includes("node_modules") && !DEPS)) return null;
+  /** Trees live under `node_modules/.perf-trees`, so strip that prefix before deciding whether a
+   * frame belongs to a dependency. Without this every frame of the library would count as one. */
+  const inTree = url.match(/node_modules\/\.perf-trees\/[^/]+\//);
+  const classified = inTree ? url.slice(url.indexOf(inTree[0]) + inTree[0].length) : url;
+  if (url.startsWith("node:") || (classified.includes("node_modules") && !DEPS)) return null;
   if (!url && (!functionName || ["(program)", "(idle)", "(root)"].includes(functionName))) return null;
-  const file = url.includes("node_modules/")
-    ? url.slice(url.lastIndexOf("node_modules/") + "node_modules/".length)
-    : url.startsWith(rootUrl)
-      ? url.slice(rootUrl.length).replace(/^\.perf-trees\/[^/]+\//, "")
-      : url;
+  const file = classified.includes("node_modules/")
+    ? classified.slice(classified.lastIndexOf("node_modules/") + "node_modules/".length)
+    : classified.startsWith(rootUrl)
+      ? classified.slice(rootUrl.length)
+      : classified.replace(/^file:\/\//, "");
   return `${functionName || "(anonymous)"} ${file}${file ? `:${lineNumber + 1}` : ""}`;
 }
 
@@ -119,3 +126,32 @@ if (!DEPS) {
 
 print("self time", aggSelf);
 print("total time", aggTotal);
+
+/**
+ * The top-function view finds a hot function and says nothing about which of its callers or which
+ * of its statements to change, which is the actual decision. These two views answer that.
+ */
+const focus = (values.callers ?? values.lines) as string | undefined;
+if (focus) {
+  const matches = (n: ProfileNode) => n.callFrame.functionName === focus;
+  if (values.callers) {
+    const byCaller = new Map<string, number>();
+    for (const n of nodes.filter(matches)) {
+      const up = parent.get(n.id);
+      const caller = up === undefined ? "(root)" : (label(byId.get(up)!) ?? byId.get(up)!.callFrame.functionName);
+      byCaller.set(caller, (byCaller.get(caller) ?? 0) + (selfTime.get(n.id) ?? 0));
+    }
+    print(`self time of ${focus} by caller`, byCaller);
+  }
+  if (values.lines) {
+    const byLine = new Map<string, number>();
+    for (const n of nodes.filter(matches)) {
+      for (const tick of (n as any).positionTicks ?? []) {
+        const key = `${label(n) ?? focus} line ${tick.line}`;
+        byLine.set(key, (byLine.get(key) ?? 0) + tick.ticks);
+      }
+    }
+    if (byLine.size === 0) console.log(`\nno line ticks for ${focus}: is the name spelled as it appears above?`);
+    else print(`ticks of ${focus} by line`, byLine);
+  }
+}

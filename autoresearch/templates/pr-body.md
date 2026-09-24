@@ -17,6 +17,7 @@
 |---|---|---|---|
 | <targeted case> | **<d1>** | **<d2>** | **<s>x** |
 | <noisy case> | <d1> | <d2> (noisy case) | n/a |
+| <asymptotic case, standalone> | <d1> | <d2> | <s>x at <size>, linear from here |
 | **suite TOTAL** | **<d1>** | **<d2>** | **<s>x** |
 
 <Optional external cross-check, with its caveat stated in the same paragraph.>

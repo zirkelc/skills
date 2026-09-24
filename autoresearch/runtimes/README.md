@@ -18,8 +18,11 @@ A runtime folder must provide these capabilities. The method in `SKILL.md` depen
 4. **Example cases.** One case definition, with seeded data, feeds both the A/B harness and the guard.
 5. **A machine-readiness probe.** Times one pure CPU loop repeatedly and reports how far the median sits above the minimum, so a campaign does not calibrate against someone else's build.
 6. **Standalone timing of one case against one revision**, in its own process, to confirm a per-case delta that the paired harness reports on untouched code.
-7. **Optional: other metrics.** For example retained memory per instance, when maintainers value it.
-8. **A README** with setup, commands, extension points and runtime-specific traps.
+7. **A scaling scan**: each input shape at n and at a multiple of n, so superlinear paths show up. A suite built on realistic sizes cannot see them, and they are often the largest wins available.
+8. **A differential check**: both revisions over generated and hand-picked inputs, compared on everything observable, for changes whose risky inputs the suite does not cover.
+9. **Build support**, when the shipped artifact is generated: the harness builds each materialised revision itself and never falls back to artifacts on disk.
+10. **Optional: other metrics.** For example retained memory per instance, when maintainers value it.
+11. **A README** with setup, commands, extension points and runtime-specific traps.
 
 ## Notes for new runtimes
 
@@ -28,4 +31,5 @@ A runtime folder must provide these capabilities. The method in `SKILL.md` depen
 - **Language-native benchmark frameworks** (Rust criterion, Go `testing.B`, JMH, pytest-benchmark) are good case runners. Wrap them so each run prints one line per case with a duration, and parse that. Their own "compare with saved baseline" features compare two standalone runs, which is not paired, so do not use them for the decision. For Go, `benchstat` over interleaved runs is an acceptable alternative.
 - **Per-case lifecycle and the guard** are not optional in a new runtime: without `setup`/`teardown` the inputs of every case stay alive on both sides, and without a guard the campaign has no evidence that anything it kept is behaviour-preserving.
 - **Case lifecycle.** Cases need optional `setup`/`teardown` so large inputs exist only while their case runs; every harness script has to call them. Inputs of all cases alive at once exist twice, once per revision, and make every collection slower on both sides.
+- **Scratch directories** belong where the ecosystem's tooling already ignores them (for Node, inside `node_modules`). A git-level ignore hides them from git only, not from formatters, linters or type checkers.
 - **Resolution leaks** are the main correctness risk of any harness: the materialised tree may still import code from the working tree (workspace packages resolved by name, installed editable packages, shared build caches). Always run the canary test from `SKILL.md` step 3 on a new setup.
