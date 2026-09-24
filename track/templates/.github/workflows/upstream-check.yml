@@ -1,0 +1,154 @@
+name: upstream-check
+
+# Checks every open issue in this repo against the upstream issues and PRs it
+# references, and labels the ones whose upstream state has changed. It never
+# closes an issue: upstream shipping a fix is not the same as this project
+# having adopted it, and the label is the queue of work that adoption creates.
+
+on:
+  schedule:
+    # Daily at 07:00 UTC. Each run rounds up to one billed minute on a private
+    # repository, so keep this to a single job.
+    - cron: '0 7 * * *'
+  workflow_dispatch:
+
+permissions:
+  issues: write
+
+concurrency:
+  group: upstream-check
+  cancel-in-progress: false
+
+jobs:
+  check:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/github-script@v7
+        with:
+          script: |
+            const LABELS = {
+              fixed: 'upstream:fixed',
+              declined: 'upstream:declined',
+              moved: 'upstream:moved',
+              unreachable: 'upstream:unreachable',
+            };
+            const ALL_LABELS = Object.values(LABELS);
+
+            /** The "## Upstream" section alone, or the whole body when it has no such heading. */
+            const upstreamSection = (body) => {
+              const lines = body.split('\n');
+              const start = lines.findIndex((l) => /^##\s+Upstream\s*$/.test(l));
+              if (start === -1) return body;
+              const rest = lines.slice(start + 1);
+              const end = rest.findIndex((l) => /^##\s/.test(l));
+              return (end === -1 ? rest : rest.slice(0, end)).join('\n');
+            };
+
+            /** Pull upstream references out of that section, deduplicated by owner/repo#number. */
+            const parseRefs = (body) => {
+              if (!body) return [];
+              const scope = upstreamSection(body);
+              const re = /https:\/\/github\.com\/([\w.-]+)\/([\w.-]+)\/(issues|pull)\/(\d+)/g;
+              const seen = new Map();
+              for (const m of scope.matchAll(re)) {
+                const key = `${m[1]}/${m[2]}#${m[4]}`;
+                if (!seen.has(key)) {
+                  seen.set(key, { owner: m[1], repo: m[2], kind: m[3], number: Number(m[4]), key, url: m[0] });
+                }
+              }
+              return [...seen.values()];
+            };
+
+            /**
+             * Resolve one reference to open | fixed | declined | moved | unreachable.
+             * A pull request is authoritative only via the pulls endpoint, because the
+             * issues endpoint does not guarantee the merged timestamp is present.
+             */
+            const resolve = async (ref) => {
+              try {
+                if (ref.kind === 'pull') {
+                  const { data } = await github.rest.pulls.get({ owner: ref.owner, repo: ref.repo, pull_number: ref.number });
+                  if (data.state === 'open') return { ...ref, state: 'open', title: data.title };
+                  return {
+                    ...ref,
+                    state: data.merged ? 'fixed' : 'declined',
+                    detail: data.merged ? `merged ${data.merged_at}` : `closed without merging ${data.closed_at}`,
+                    title: data.title,
+                  };
+                }
+                const { data } = await github.rest.issues.get({ owner: ref.owner, repo: ref.repo, issue_number: ref.number });
+                if (data.state === 'open') return { ...ref, state: 'open', title: data.title };
+                const reason = data.state_reason;
+                const state = reason === 'not_planned' ? 'declined' : reason === 'duplicate' ? 'moved' : 'fixed';
+                return {
+                  ...ref,
+                  state,
+                  detail: `closed ${data.closed_at}${reason ? ` as ${reason}` : ' (no reason given)'}`,
+                  title: data.title,
+                };
+              } catch (error) {
+                if (error.status === 404 || error.status === 410) {
+                  return { ...ref, state: 'unreachable', detail: `not readable (HTTP ${error.status})` };
+                }
+                throw error;
+              }
+            };
+
+            /**
+             * One label for the whole issue. A fix anywhere settles it; otherwise anything
+             * still open upstream means we are still waiting, even when a sibling reference
+             * was declined, because the open one may yet land.
+             */
+            const aggregate = (results) => {
+              if (results.some((r) => r.state === 'fixed')) return LABELS.fixed;
+              if (results.some((r) => r.state === 'open')) return null;
+              for (const state of ['moved', 'declined', 'unreachable']) {
+                if (results.some((r) => r.state === state)) return LABELS[state];
+              }
+              return null;
+            };
+
+            const NEXT_STEP = {
+              [LABELS.fixed]: 'Check whether the fix is in a released version, upgrade, then remove the workaround recorded above and close this issue.',
+              [LABELS.declined]: 'Upstream will not do this, so the workaround is now permanent. Decide whether to keep it, fork, patch, or move off the dependency.',
+              [LABELS.moved]: 'Upstream closed this as a duplicate. Re-point the Upstream section at the issue it was merged into.',
+              [LABELS.unreachable]: 'The upstream reference cannot be read any more. The repository may be private, renamed, or deleted.',
+            };
+
+            const { owner, repo } = context.repo;
+            const issues = await github.paginate(github.rest.issues.listForRepo, { owner, repo, state: 'open', per_page: 100 });
+
+            let changed = 0;
+            for (const issue of issues) {
+              if (issue.pull_request) continue;
+
+              const refs = parseRefs(issue.body);
+              if (refs.length === 0) continue;
+
+              const results = [];
+              for (const ref of refs) results.push(await resolve(ref));
+
+              const want = aggregate(results);
+              const have = issue.labels.map((l) => (typeof l === 'string' ? l : l.name)).filter((l) => ALL_LABELS.includes(l));
+
+              /* Nothing to say unless the conclusion actually changed, so re-runs stay silent. */
+              const same = have.length === (want ? 1 : 0) && (!want || have[0] === want);
+              if (same) continue;
+
+              const keep = issue.labels
+                .map((l) => (typeof l === 'string' ? l : l.name))
+                .filter((l) => !ALL_LABELS.includes(l));
+              await github.rest.issues.setLabels({ owner, repo, issue_number: issue.number, labels: want ? [...keep, want] : keep });
+
+              const lines = results.map((r) => `- ${r.state === 'open' ? 'still open' : `**${r.state}**`} — [${r.key}](${r.url})${r.detail ? ` — ${r.detail}` : ''}`);
+              const heading = want
+                ? `@${issue.user.login} upstream state changed: \`${want}\``
+                : `@${issue.user.login} upstream reopened, so this is back to waiting.`;
+              const body = [heading, '', ...lines, '', want ? NEXT_STEP[want] : 'No action needed yet.'].join('\n');
+
+              await github.rest.issues.createComment({ owner, repo, issue_number: issue.number, body });
+              changed += 1;
+              core.info(`#${issue.number}: ${have.join(',') || 'none'} -> ${want || 'none'}`);
+            }
+
+            core.info(`checked ${issues.length} issue(s), updated ${changed}`);

@@ -62,6 +62,11 @@ Each skill is tagged with how it can be invoked:
   ```bash
   npx skills add zirkelc/skills/issue
   ```
+- **track** — Track an upstream issue or PR in a dependency by filing the missing half into a private `<owner>/issues` repo: what was needed, where it bites, and a grep that comes back empty once the workaround can go. Bootstraps the store on first use, including a daily workflow that resolves every upstream link and labels the tracker when the conclusion changes. It never auto-closes, because upstream shipping a fix is not the same as having adopted it.
+  - `invocable: auto`
+  ```bash
+  npx skills add zirkelc/skills/track
+  ```
 - **release-please** — Merge an open Release Please PR for a repo to cut a release, then monitor the release workflow and report the published version.
   - `invocable: slash-only`
   ```bash
