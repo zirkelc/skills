@@ -48,6 +48,10 @@ one refspec the skill itself tells people to run.
 Items 8 and 5 change decisions, 1 and 3 can invalidate a whole campaign's evidence, and 10 is a class
 of win the method could not see at all.
 
+**Implemented in `32b57e3`.** What changed per item, where I deviated from your suggestion, one
+finding of my own that came out of testing it, and how to verify the lot:
+[Appendix: the implementation](#appendix-the-implementation).
+
 ## 1. Harness: repos whose build output is generated and gitignored
 
 **What happened.** micromark writes its production files (`index.js`, `lib/`) from `dev/` with a
@@ -414,3 +418,86 @@ avoid inline shell loops.
 
 **Response: approved, and the first point removes a dependency from the setup.** Node 24 strips types from `.mts` directly, so the harness no longer needs `tsx` and the target repo's manifest stays untouched, which matters because a campaign should not modify the repo it is measuring. The README will state the Node version and keep `tsx` only as the fallback for older runtimes. The other two go in as written: revisions resolve from the campaign checkout, so one harness verifies every PR branch, and reading the maintainers' own merged perf PRs first sets the register for the bodies.
 
+
+## Appendix: the implementation
+
+Commit `32b57e3` in `zirkelc/skills`, 14 files, three of them new. This appendix says what each item
+became, so the verification has something specific to disagree with.
+
+### Per item
+
+| # | What changed | Where |
+|---|---|---|
+| 1 | `build` and `buildWorkspaces` config keys, run in each tree after unpacking (workspaces in the root manifest's order, with the root `node_modules/.bin` on `PATH`). With either set, `WORKTREE` is materialised too, keyed by a sha1 over the content of `git ls-files -co --exclude-standard -- <src>`. | `harness.mts` |
+| 2 | Every package found inside a tree is symlinked into that tree's own `node_modules`. `copyDependents` (a regex over the root `node_modules`) copies matching packages in with `dereference: true`. `entryModules` writes a `perf-entry.mjs` per tree and makes it the entry. `verifyResolve` resolves the named packages from inside the tree and throws when any of them resolves outside it. | `harness.mts` |
+| 3 | Trees are created under `node_modules/.perf-trees` when that directory exists. The profiler strips a `node_modules/.perf-trees/<key>/` prefix before deciding whether a frame is a dependency, and before printing the path. | `harness.mts`, `profile.mts` |
+| 4 | `templates/gates.example.sh`: build first, then guard, then cheap gates, then `--full` for coverage and size, then `git status` so a formatter's rewrites are visible. One line per gate. | new template |
+| 5 | Step 3 now asks for two different canaries: a slowdown for the harness, an output change for the gates. | `SKILL.md` |
+| 6 | `jitter.mts --max <percent> --wait <minutes>`: polls until the spread is under the threshold, exits 1 when the wait expires. Default `--max` is 2. Step 4 adds re-controls during the campaign, recalibration with re-confirmation of the keeps since the last good control, invalid runs recorded in the log, and the waiting time in the budget. | `jitter.mts`, `SKILL.md` |
+| 7 | "While an A/B run is in progress, start nothing else: no build, no test, no profile." | `SKILL.md` step 6 |
+| 8 | The per-case band is defined as the spread of that case's medians **across** the calibration runs, and the difference from the within-run band is spelled out. A marker no longer overrides two runs that agree: a standalone run decides. The paragraph claiming the two rules cannot conflict is replaced by your counter-example. | `SKILL.md`, `methodology.md` |
+| 9 | `ab.mts` warns when a case body is above 50 ms or below 1 ms, naming the case. Child stderr is forwarded to the parent, deduplicated, or the warning would never be seen. | `ab.mts` |
+| 10 | `scan.mts` (n against 4n per shape, flags ratios above 1.6x the factor), the scan as a step 5 instruction with the `splice`/`shift`/`unshift`/`indexOf` hint, your three fix patterns in the candidate list, a **keep (asymptotic)** category with its evidence requirements, and the correction that adding a case is allowed when its expectation is recorded against the base. | new `scan.mts`, `SKILL.md` |
+| 11 | `differential.mts`: fixed inputs plus seeded random inputs, compared on whatever `describe` returns, with the differing input and both results printed. Rule added to step 2 and step 6. | new `differential.mts`, `SKILL.md` |
+| 12 | "An asymptotic keep or a trade-off must be re-measured in isolation before its body is written. Suite neutrality in a stacked run is not evidence." | `pr-packaging.md` |
+| 13 | Cross-checks: never a single cold timing, warm up, minimum of several, repeat in fresh processes, and treat a first standalone regression as unconfirmed. | `methodology.md` |
+| 14 | `profile.mts --callers <fn>` and `--lines <fn>` (the latter from `positionTicks`). Size measurement is a rule in the methodology instead of a script. | `profile.mts`, `methodology.md` |
+| 15 | "Continuing after the final summary": commit by explicit path, one commit per log row, A/B against the last code commit. | `SKILL.md` step 8 |
+| 16 | Six rules: run the tests before copying the harness in, the privacy scrub as a blocking check, comparing the failing job set with the base's CI, the current template from the organisation's `.github` repo, decision items in the related body, and sibling repos as miniature campaigns. | `pr-packaging.md` |
+| 17 | The refspec trap where that command lives, plus "prefer a script file over an inline shell loop, because the traps live in the quoting". | `pr-packaging.md` |
+| 18 | The Node version note, the branch-name resolution note, and prior-art reading strengthened. | `node-ts/README.md`, `pr-packaging.md` |
+
+### Where I did not follow the suggestion
+
+- **Item 1, content hashing:** tied to `build` being configured. A source-only repo gains nothing from
+  copying its sources per experiment and would pay for it on every run.
+- **Item 6, threshold:** `--max` defaults to 2, not 1.5. Your runs at 5% were unusable and 1.5% is hard
+  to reach on a shared machine, so 2 is the compromise, and the flag makes it a per-campaign decision.
+  The wait lives in the probe rather than in a wrapper script.
+- **Item 8, the conflict:** neither rule wins outright. Two agreeing runs plus a standalone check
+  decide. A row is no effect only when both runs are marked **and** their medians disagree.
+- **Item 14, size:** no script. Repos differ too much; the methodology now says to measure the shipped
+  artifact minified and compressed, and never the unminified build.
+- **Item 17, shell traps:** only the refspec, which the skill itself tells people to run. The others
+  are general shell knowledge that would age badly here.
+
+### One finding of my own, which is a question for you
+
+Testing `differential.mts` on zod, it reported "identical" for two revisions that differ in an error
+message. Both sides printed the **changed** message. The cause is not polymorphism: zod keeps its
+configuration on `globalThis` deliberately, so with two revisions in one process the instance that
+initialises last owns that state for both. Any library with a global registry, config or cache has
+this. Timing tolerates it, because both sides then run the same state; a behaviour comparison does
+not. `differential.mts` now spawns one process per revision, and the trap is in `methodology.md`.
+
+**The question:** your item 11 describes differential checks between "the base tree and the new tree".
+If those ran in one process, the fuzz results for PRs that change observable behaviour may be worth
+re-running one revision per process. micromark has less global state than zod, so this may be
+irrelevant, but it is cheap to check and expensive to be wrong about.
+
+### How to verify
+
+Against your campaign checkout, with the new runtime copied over `perf/`:
+
+1. **Trees and tooling (3):** run any command, then `git status` and the repo's format gate. Trees
+   land in `node_modules/.perf-trees`, and nothing lints them.
+2. **Build and staleness (1):** with `build` configured, run the guard, note the `wt-<hash>` tree,
+   edit a source file, run the guard again. A second `wt-` tree appears and the guard fails on the
+   edit rather than passing on the old build.
+3. **Resolution (2):** set `verifyResolve` to the package names your cases touch, then delete the
+   `copyDependents` entry and run again. It must throw and name the package that escaped.
+4. **Profiler (3, 14):** profile one case. Frames must show `packages/...`, not be hidden as
+   dependencies. Then `--callers` and `--lines` on the resolver you optimised, and compare with what
+   `callers.mjs` and your line ticks reported.
+5. **Scan (10):** run `scan.mts` against the revision before your quadratic fixes. It should flag the
+   same shapes your own scan flagged, and report ratios near the factor after the fixes.
+6. **Differential (11):** run it on two identical revisions (must pass), then against a revision with
+   a deliberate output change (must fail, and print the input).
+7. **Probe (6):** `jitter.mts --max 1.5 --wait 2` while something else is running. It must report
+   busy, wait, and exit 1 when the wait expires.
+8. **Case sizes (9):** run an A/B with your chat cases. Anything outside 1 to 50 ms is named once.
+
+What I could not verify here: the monorepo paths (2) have no equivalent in the repos I have, so
+`copyDependents`, `entryModules`, `buildWorkspaces` and `verifyResolve` are written from your
+description and tested only for not breaking a single-package repo. That is the part most worth your
+scepticism.
