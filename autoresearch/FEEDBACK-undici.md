@@ -1026,3 +1026,119 @@ standalone number that is noise or a real win dropped, and clause 3 is the only 
 
 I will also carry your framing that a standalone headline without a control "is not better evidence
 than the paired number it replaces". That is the sentence that stops clause 1 from being cargo cult.
+
+---
+
+# Round 3: verification of 809c76b and 4803a14 on undici
+
+Same method as round 2: runtime copied over the undici campaign's `perf/`, own cases kept, a copy of
+`ab.mts` that prints the four drift values per case from the parent, everything restored after.
+Nothing committed.
+
+## V1. Drift rules on the twelve cases (the point of this round)
+
+Three quiet identical-code full-suite runs at the defaults (`--warmup 3`), four values per case:
+
+- **Accumulation rule (lowest of four > 20%): 0 warnings in 36 case-runs.** It held on exactly the
+  pattern that produced 113% before: `request-clone` 4 / 6 / 152 / 191, `parse-headers` -0 / 8 / 83 /
+  85. Two values from one child spike, two stay near zero, and agreement ignores it. Largest lowest
+  value on a clean case: 9% (same as in round 2), so 20% has room.
+- **Warm-up rule (second-lowest < -20%): 8 warnings in 36 case-runs.** `ws-frame` 3 of 3,
+  `headers-append-iterate` 2, `headers-record`, `response-new`, `cookies` 1 each.
+
+**The warm-up warnings on the four ordinary cases are true.** Two full runs at `--warmup 20`: they
+are gone (`headers-record` 4 / 5 / 9 / 10, `headers-append-iterate` -1 / 2 / 4 / 7, `response-new`
+-5 / 3 / 4 / 11, `cookies` -5 / -5 / 1 / 4). One `parse-headers` warning remained in one run (-42 /
+-22). So the default `--warmup 3` is too low for this suite, and the new rule found that. Worth a
+line in the README: when several cases warn, raise the default for the campaign rather than per case,
+and recalibrate, since warm-up changes what the bars were measured on.
+
+## V2. ws-frame: the warning fires, raising `--warmup` does not fix it
+
+| run | warm-up | four values | band |
+|---|---|---|---|
+| focused, 60 iters | 3 | -41 -38 -38 -4 | -53.9% .. +96.0% |
+| focused, 60 iters | 3 | -46 -39 -3 1 | -55.2% .. +124.9% |
+| focused, 60 iters | 50 | -53 -53 -6 -5 | -55.4% .. +124.6% |
+| focused, 60 iters | 50 | -50 -49 21 21 | -54.3% .. +126.0% |
+
+Warning in every run, bimodal band unchanged. Standalone the same case is stable to +-2% (V3). So this
+is not warm-up that more iterations cure: in-process, with two revisions of the module, the case
+keeps getting faster far past any warm-up, on the side loaded first. The message tells the user to
+"raise --warmup or the body size", which here would cost an experiment and change nothing.
+
+Proposed message addition: "If the warning survives a raised --warmup, this case is not stable
+in-process: decide it on focused runs against a focused control, and report it standalone." That is
+what the campaign did by instinct and what the skill can now say.
+
+## V3. `solo --pairs` at the new defaults (8 pairs, 100 iterations) against R11
+
+| case | R11 | now | control now | verdict |
+|---|---|---|---|---|
+| ws-frame | -32.2% | -32.0% | -1.9 .. +2.2 | reproduces |
+| request-url | -12.6% | -17.7% | -3.2 .. +3.4 | direction and size agree, ranges overlap |
+| request-clone | -14.2% | -8.2% | **-19.2 .. +18.4** | **not resolvable**: both values inside the control |
+| request-init | not resolvable | not resolvable (-2.1%) | -18.7 .. +15.4, median -11.7 | consistent |
+| headers-record | -10.4% | -11.5% | -7.7 .. +6.4 | reproduces |
+| cookies (ByteString) | -9.2% | -10.0% | -2.4 .. +3.5 | reproduces |
+| cookies (getCookies) | -23.0% | -21.5% | -6.2 .. +5.1 | reproduces |
+
+Five of seven within their controls. The miss matters: `request-clone` was in PR #5901 as -14.2% /
+1.17x. By the rule this round added, it is not resolvable standalone, and #5901 now reports the
+focused paired number for it, named as such.
+
+The per-revision spread line is what made this visible without arithmetic (base alone 2.55 .. 3.42 ms
+across processes).
+
+Two refinements:
+
+- **Define "the control covers the effect".** As written it is a judgement call. `headers-record`
+  (-11.5% against a control of -7.7 .. +6.4) passes narrowly, `request-clone` (-8.2% against +-19%)
+  fails clearly, and a rule between them is what keeps the call honest. Proposal: the effect's median
+  lies outside the control's pair range, in two runs made on different occasions. `request-clone`
+  fails that on both runs, `headers-record` passes both.
+- **Suggest two runs, not one.** request-url moved from -12.6% to -17.7% between days with tight
+  controls both times. A single standalone run is one sample of the day.
+
+## V4. `--by-area --depth 3` on fetch-mock
+
+```
+31.4%  node:
+26.0%  lib/web/fetch/
+24.4%  (garbage collector)
+ 4.1%  lib/mock/
+ 4.1%  runMicrotasks
+ 2.7%  parse
+ 1.9%  (program)
+ 1.4%  lib/web/webidl/
+ 0.7%  lib/core/
+ ...   now, latin1Slice, enqueueMicrotask, decodeUTF8, ... each on its own row
+```
+
+Yes on both questions. GC is its own row, and the areas separate (fetch, webidl, mock, core; mock
+4.1% against the hand count of 3.9%). One correction to the round-2 reasoning: `runMicrotasks` is a
+frame in this profile (4.1%), so the V8 labels do show microtasks, which supports the choice of
+using them. Cosmetic: every url-less builtin is its own row (`parse`, `now`, `latin1Slice`,
+`enqueueMicrotask`, `decodeUTF8`, ...). Keeping the parenthesised V8 labels and grouping the rest as
+`(native)` would keep the list short.
+
+## V5. Regressions from round 1
+
+None found. Checked on the real suite: guard (check, `--only`, `<base> --update`, byte-identical file,
+the new two-cause message), `--sizes`, `--only` typo in `ab.mts` (now one line), differential (3 023
+items identical), `solo` single form, `profile` positional case list, `mem.mts`, `scan.mts`, the
+micro template (median -12%, consistent with the one-process-per-candidate truth of about -10%).
+
+Small items:
+
+- `solo --pairs` with a typo prints the table header before the one-line error, because the name is
+  checked in the child. Check it in the parent before printing, as `ab.mts` effectively does.
+- `micro.example.mjs`: `Number(stdout)` turns a crashed child into `NaN` without a message. Check
+  the exit status.
+- `combine()` with `--repeats > 1`: taking min-of-mins and max-of-maxes per load order keeps the
+  accumulation rule strict but makes the warm-up rule looser, because one child's extreme can then
+  supply both values of a load order. Only matters with repeats, which the campaign never used.
+- `scan.mts` now flags `headers-many-names` (step ratios 5.85 / 6.86 against a limit of 5.6), an
+  n log n sort with cache effects at a million names; the campaign's run was just under. The margin
+  of 1.4x sits close to what n log n produces at these sizes. Low priority, but a "borderline" band
+  between 1.4x and 1.8x would stop it reading as a finding.

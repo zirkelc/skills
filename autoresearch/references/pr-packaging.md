@@ -63,11 +63,13 @@ Run from the harness location (the campaign branch):
 
 1. One noise-control run with identical code on both sides.
 2. Two A/B runs of the base against the branch, focused on the cases the PR targets where the full suite cannot resolve them.
-3. A standalone run per headline case, alternating whole processes (`solo.mts A B <case> --pairs 8 --iters 100` in node-ts), **each next to an identical-code control** (`solo.mts A A <case>`, same settings).
+3. A standalone run per headline case, alternating whole processes (`solo.mts A B <case>` in node-ts), **twice, on different occasions, each next to an identical-code control** (`solo.mts A A <case>`, same settings). An effect is resolvable standalone when its median lies outside the control's pair range in both runs. One case moved from -12.6% to -17.7% between days with tight controls both times, so one run is one sample of the day.
 
 **Every headline number in the body comes from step 3, with its control beside it.** The reason is not that paired numbers are inflated: across five changes in one campaign the standalone number came out lower twice and higher twice. It is that a maintainer builds one revision per process, so that is the number they will measure, and a reviewer who reproduces something else stops believing the rest of the PR. Two PRs of an earlier campaign were closed over that kind of credibility.
 
 The control is what turns the number into evidence. Process-to-process spread differed by a factor of twenty between cases of the same campaign, from +-1.5% to +-33%, so the same command resolves a 32% effect in one case and cannot resolve 9% in another. Where the control's spread covers the effect, say so in the body, give the focused number and name the instrument: one real change measured -8.5% and -9.8% focused against controls of +0.2% and +0.8%, and no standalone run could separate it from its own control.
+
+This is not theoretical. In the campaign that produced this rule, one PR had already been published claiming 1.17x for a case whose control turned out to span -19% to +18%. Both of its standalone measurements sat inside that range, the claim was not supported, and the body had to be corrected after the fact. Measure the control before the number goes into a body, not after.
 
 Build the verification table from these runs, never from the campaign log: isolated effects differ from stacked ones.
 

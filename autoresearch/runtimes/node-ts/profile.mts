@@ -180,7 +180,21 @@ if (values["by-area"]) {
     }
     byArea.set(area, (byArea.get(area) ?? 0) + t);
   }
-  print(`self time by area (depth ${DEPTH})`, byArea);
+  /**
+   * V8's own labels for frames without a file are worth their own rows: the collector's share is the
+   * allocation signal a campaign acts on, and `runMicrotasks` is where an async workload's scheduling
+   * sits. The individual builtins below them (`parse`, `now`, `latin1Slice`) are a long tail that
+   * pushes the useful rows off the screen, so collapse the small ones and keep any that is large
+   * enough to be worth a look on its own.
+   */
+  const total = [...byArea.values()].reduce((a, b) => a + b, 0);
+  const grouped = new Map<string, number>();
+  for (const [area, t] of byArea) {
+    const isFile = area.includes("/") || area.endsWith(":");
+    const keep = isFile || area.startsWith("(") || t / total >= 0.02;
+    grouped.set(keep ? area : "(native)", (grouped.get(keep ? area : "(native)") ?? 0) + t);
+  }
+  print(`self time by area (depth ${DEPTH})`, grouped);
 }
 
 /**

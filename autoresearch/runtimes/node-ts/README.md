@@ -92,7 +92,7 @@ pnpm exec tsx perf/profile.mts --lines src/parse.js:120   # the same, for an ano
 node perf/micro.mjs                             # candidate against current, one function, no experiment spent
 ```
 
-Every script also takes `--entry`, `--src` (repeatable), `--cases` and `--only` to override the config. `ab.mts` takes `--iters` (25), `--warmup` (3), `--target-ms` (1.5 per timed iteration) and `--repeats` (1 child per load order).
+Every script also takes `--entry`, `--src` (repeatable), `--cases` and `--only` to override the config. `ab.mts` takes `--iters` (25), `--warmup` (20, bounded by half a second per case), `--target-ms` (1.5 per timed iteration), `--repeats` (1 child per load order) and `--max` (2, the machine spread its after-probe accepts).
 
 ### Three levels of measurement, three jobs
 
@@ -100,7 +100,7 @@ Every script also takes `--entry`, `--src` (repeatable), `--cases` and `--only` 
 |---|---|---|
 | `ab.mts` (full suite) | Did anything else move? | The two summaries, and a regression in a case the change did not target |
 | `ab.mts --only <case>` | Did the targeted case move? | Every per-case keep and discard. Same time buys far more paired iterations, and the other cases' heap is gone |
-| `solo.mts A B <case>` | What will a maintainer measure? | The number a PR reports, next to `solo.mts A A <case>` as its control |
+| `solo.mts A B <case>` | What will a maintainer measure? | The number a PR reports: twice, on different days, each next to `solo.mts A A <case>` as its control |
 
 They give different answers on purpose, by up to a factor of two and in both directions: across five changes in one campaign the focused run was larger than the full suite for one case, and the standalone run larger than both for another. A focused number may only be compared with a focused control, never with a full-suite band, because the precision comes partly from the other cases being absent. A standalone number is only evidence next to an identical-code control, because process-to-process spread differs by a factor of twenty between cases.
 
@@ -115,7 +115,9 @@ Per case, `ab.mts` prints the minimum ms of one body for A and B, the delta, the
 - **band** is the interquartile range of the per-iteration deltas. Both markers describe this run, not the change. `?` means the band contains 0%: the iterations disagree about the direction, so this run does not confirm the row. `~` means the band is wide against its own median, which is what an in-process artefact or a too-short case looks like. `?` wins when both would apply, because a band around zero is wide against its own median almost by definition; `~` alone is the interesting shape, a confident-looking median that the iterations do not support. Confirm a marked row with the second run the method already requires, or with `solo.mts`. Treat a row as no effect only when both runs mark it; a row marked once and clean once is a noisy case, not a dead one. Neither marker is a reason to discard on its own.
 - **TOTAL** weights each case by its time, **GEOMEAN** weights every case equally. Gate on both. When they disagree, one big case is paying for several small ones (or the reverse), and the per-case lines say which.
 - **machine after the run** is a short probe once the children have finished. A run is only valid if the machine was quiet for all of it, and that cannot be known before it ends. It does not certify the run either: a burst that starts and ends inside it passes both this and the probe before. Treat a BUSY verdict as an invalid run, log it, and repeat it.
-- **warnings** name a case and what is wrong with it: a body outside the usable range, a case that ran slower at the end of the run than at the start (it accumulates state across calls), or one that ran faster at the end (it had not reached optimised code when timing started, so raise `--warmup` or the body size). The drift warnings fire only when all four measurements agree, both sides and both load orders. One value on its own is noise: on a real suite the worst of the four reached 113% on a case that accumulates nothing, while the lowest of the four stayed at 9%.
+- **warnings** name a case and what is wrong with it: a body outside the usable range, a case that ran slower at the end of the run than at the start (it accumulates state across calls), or one that ran faster at the end (it had not reached optimised code when timing started). Both drift warnings are decided on the lower drift of each child, so both require the two child processes to agree. One value on its own is noise: on a real suite the worst single value reached 113% on a case that accumulates nothing, while this rule gave no false positive in 36 case-runs.
+
+When several cases report warming up, raise `--warmup` for the whole suite rather than per case, and recalibrate: the bars were measured with the old value. On one suite five cases warned at the old default of 3 and all but one stopped at 20, which is why 20 is now the default. A warning that survives a large `--warmup` is a different problem: that case is not stable in this harness at all (one stayed bimodal at `--warmup 50`, while standalone it was stable to +-2%), so decide it on focused runs and report it standalone.
 
 `mem.mts` prints bytes retained per instance. Identical code gives a delta of exactly 0.0, so any non-zero delta is real.
 

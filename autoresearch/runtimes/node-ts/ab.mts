@@ -30,9 +30,13 @@ interface Row {
   /** Ratio at the 25th and 75th percentile: how stable this case's delta is. */
   p25: number;
   p75: number;
-  /** Lowest and highest of this child's two per-side drifts (see `driftPct`). */
+  /**
+   * The lower of this child's two per-side drifts (see `driftPct`). Both warnings are built from
+   * this one number per child, because both ask whether the two children agree.
+   */
   driftMin: number;
-  driftMax: number;
+  /** Same value, aggregated the other way when several children run per load order. */
+  driftMinHigh: number;
 }
 
 /** A body outside this range makes the instrument worse. Checked here and by `--sizes`. */
@@ -52,7 +56,15 @@ const { config, positionals, values } = loadConfig(HARNESS_DIR, process.argv.sli
 
 /** Tune ITERS and REPEATS in step 4, against this machine and the session's time budget. */
 const ITERS = Number(values.iters ?? 25);
-const WARMUP = Number(values.warmup ?? 3);
+/**
+ * Warm-up rounds per case and side, bounded by WARMUP_BUDGET_MS so that a slow case does not pay
+ * twenty times its body for them. Three was the old default and it was too low: on a real
+ * twelve-case suite, five cases reported that they were still speeding up when timing began, and all
+ * but one stopped at twenty. Raising it changes what the bars were measured on, so recalibrate after
+ * changing it.
+ */
+const WARMUP = Number(values.warmup ?? 20);
+const WARMUP_BUDGET_MS = 500;
 const TARGET_NS = Number(values["target-ms"] ?? 1.5) * 1_000_000;
 const REPEATS = Number(values.repeats ?? 1);
 /** Machine spread accepted by the probe after the run. Same default and meaning as `jitter.mts`. */
@@ -94,14 +106,19 @@ function driftPct(times: Array<number>): number {
  * Thresholds for the aggregated drift. Each is a rule about how many of the four values (two sides,
  * two load orders) must agree, and the two rules differ because the two mechanisms do.
  *
- * Accumulation is a property of the case, so it hits every instance in every order: require all
- * four. Measured on a real twelve-case suite, the worst single value reaches 113% on a case that
- * accumulates nothing, while the lowest of the four stays at 9% on a quiet machine and below zero on
- * a busy one; a case that really did accumulate measured 324% on all four.
+ * Both are decided on the **lower** drift of each child, so both ask the same question: do the two
+ * children, which are independent processes, agree?
  *
- * Warming up is not symmetric. It was observed on the side loaded first, in both children, so two of
- * the four values carry it by construction and requiring all four would miss it entirely. Require
- * two, which is still agreement between independent children rather than one noisy number.
+ * Accumulation is a property of the case, so it reaches every instance in every order: all four
+ * values must clear the threshold, which is the lower value of each child clearing it. On a real
+ * twelve-case suite that gave no false positive in 36 case-runs, including the exact pattern that
+ * defeats a looser rule (one child at 152 and 191, the other at 4 and 6). The largest clean value
+ * under this rule was 9%; a case that really did accumulate measured 324%.
+ *
+ * Warming up is not symmetric: it was observed on the side loaded first, so one value per child
+ * carries it while the other sits near zero, and requiring all four would miss it entirely.
+ * Requiring the lower value of **both** children keeps the agreement between independent processes,
+ * which is the part that makes either warning worth printing.
  */
 const DRIFT_WARN_PCT = 20;
 const WARMUP_WARN_PCT = -20;
@@ -134,7 +151,8 @@ async function measure(entryFirst: string, entrySecond: string): Promise<Array<R
       for (let r = 0; r < reps; r++) await b.run();
     };
 
-    for (let w = 0; w < WARMUP; w++) {
+    const warmupStart = process.hrtime.bigint();
+    for (let w = 0; w < WARMUP && Number(process.hrtime.bigint() - warmupStart) / 1_000_000 < WARMUP_BUDGET_MS; w++) {
       await runA();
       await runB();
     }
@@ -178,7 +196,7 @@ async function measure(entryFirst: string, entrySecond: string): Promise<Array<R
       p25: quantile(ratios, 0.25),
       p75: quantile(ratios, 0.75),
       driftMin: Math.min(driftA, driftB),
-      driftMax: Math.max(driftA, driftB),
+      driftMinHigh: Math.min(driftA, driftB),
     });
   }
   return rows;
@@ -211,9 +229,15 @@ function child(entryFirst: string, entrySecond: string): Array<Row> {
   return JSON.parse(lines[lines.length - 1]);
 }
 
-/** Combines repeated children of the same load order: minima for the absolute numbers, geometric
- * mean for the ratios, widest band for the dispersion, and the extremes for the drift, which is
- * aggregated by agreement. */
+/**
+ * Combines repeated children of the same load order: minima for the absolute numbers, geometric
+ * mean for the ratios, widest band for the dispersion.
+ *
+ * The drift keeps both extremes across the repeats, because the two warnings need opposite
+ * conservatism and both must stay as strict with repeats as they are with one child: a warning fires
+ * only if every repeat showed it. The accumulation rule reads the lowest, the warm-up rule the
+ * highest.
+ */
 function combine(runs: Array<Array<Row>>): Array<Row> {
   const geo = (xs: Array<number>) => Math.exp(xs.reduce((sum, x) => sum + Math.log(x), 0) / xs.length);
   return runs[0].map((row, i) => ({
@@ -224,7 +248,7 @@ function combine(runs: Array<Array<Row>>): Array<Row> {
     p25: Math.min(...runs.map((r) => r[i].p25)),
     p75: Math.max(...runs.map((r) => r[i].p75)),
     driftMin: Math.min(...runs.map((r) => r[i].driftMin)),
-    driftMax: Math.max(...runs.map((r) => r[i].driftMax)),
+    driftMinHigh: Math.max(...runs.map((r) => r[i].driftMin)),
   }));
 }
 
@@ -321,17 +345,15 @@ if (values.child) {
     if (bodyMs > MAX_BODY_MS || bodyMs < MIN_BODY_MS) {
       warnings.push(`case "${ab.name}" runs ${bodyMs.toFixed(2)} ms per body, outside the ${MIN_BODY_MS} to ${MAX_BODY_MS} ms range`);
     }
-    /** The four values, since the min and max of a two-element set are that set. */
-    const four = [ab.driftMin, ab.driftMax, ba.driftMin, ba.driftMax].sort((x, y) => x - y);
-    const slowest = four[0];
-    const secondLowest = four[1];
+    const slowest = Math.min(ab.driftMin, ba.driftMin);
+    const fastestAgreed = Math.max(ab.driftMinHigh, ba.driftMinHigh);
     if (slowest > DRIFT_WARN_PCT) {
       warnings.push(
         `case "${ab.name}" ran at least ${slowest.toFixed(0)}% slower at the end of the run than at the start, on every side and both load orders: it accumulates state across calls (a listener list, a cache, a registry)`
       );
-    } else if (secondLowest < WARMUP_WARN_PCT) {
+    } else if (fastestAgreed < WARMUP_WARN_PCT) {
       warnings.push(
-        `case "${ab.name}" ran at least ${(-secondLowest).toFixed(0)}% faster at the end of the run than at the start, on half of the measurements: it is still warming up when timing starts, so raise --warmup or the body size`
+        `case "${ab.name}" ran at least ${(-fastestAgreed).toFixed(0)}% faster at the end of the run than at the start, in both load orders: it has not reached optimised code when timing starts. Raise --warmup for the whole suite and recalibrate. If the warning survives that, the case is not stable in this harness at all: decide it on focused runs against a focused control, and report it standalone.`
       );
     }
   }

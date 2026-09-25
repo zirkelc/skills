@@ -81,11 +81,13 @@ So the three levels are three honest measurements of different things, and each 
 
 The rule has three clauses, and the second is what makes it worth anything:
 
-1. The headline comes from a standalone run, one revision per process, alternating.
+1. The headline comes from a standalone run, one revision per process, alternating. **Two runs, on different occasions**: one case moved from -12.6% to -17.7% between days with tight controls both times, so a single run is one sample of the day.
 2. It is reported next to an **identical-code control** at the same settings (`solo.mts base base <case>`).
-3. When the control's spread covers the effect, the effect is not resolvable standalone. Report the focused number, name the instrument, and say the control could not separate it.
+3. An effect counts as resolvable standalone when **its median lies outside the control's pair range, in both runs**. Otherwise report the focused number, name the instrument, and say the control could not separate it.
 
-Clause 2 is not ceremony. Process-to-process spread differed by a factor of twenty between cases on one machine, from +-1.5% to +-33%, so the same command resolves a 32% effect in one case and cannot resolve 9% in another. A standalone headline without its control is not better evidence than the paired number it replaces. Clause 3 has a real example: a change measured -8.5% and -9.8% focused against controls of +0.2% and +0.8%, and standalone it could not be told apart from its own control. The effect was real; the instrument could not see it.
+Clause 2 is not ceremony. Process-to-process spread differed by a factor of twenty between cases on one machine, from +-1.5% to +-33%, so the same command resolves a 32% effect in one case and cannot resolve 9% in another. A standalone headline without its control is not better evidence than the paired number it replaces.
+
+Clause 3 is written as a test rather than a judgement because the judgement is close in real cases: one change at -11.5% against a control of -7.7 to +6.4 passes it narrowly, another at -8.2% against a control of -19.2 to +18.4 fails it clearly, and without the test those two look alike. The second of those had already been published as a 1.17x speed-up before the control was measured, and the PR had to be corrected. A third case is the honest end of the rule: -8.5% and -9.8% focused against controls of +0.2% and +0.8%, and no standalone run could separate it from its own control. The effect was real; the instrument could not see it, and the body says so.
 
 Large cases that spend their time inside one algorithm are least exposed to all of this, small hot cases dominated by call sites most.
 

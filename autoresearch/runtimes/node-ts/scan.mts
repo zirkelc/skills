@@ -80,9 +80,22 @@ for (const shape of shapes) {
   const large = await best(shape, shape.input(n * FACTOR * FACTOR));
   const step1 = mid / base;
   const step2 = large / mid;
-  /** Both steps must exceed the factor by a margin: one is noise, two in a row is a shape. */
-  const superlinear = step1 > FACTOR * 1.4 && step2 > FACTOR * 1.4;
-  const note = base < MIN_MS ? "  (base still short, treat with care)" : superlinear ? "  <- superlinear" : "";
+  /**
+   * Both steps must exceed the factor by a margin: one is noise, two in a row is a shape. Two
+   * margins, because n log n with cache effects lands just above the lower one: a sort over a
+   * million keys measured 5.85 and 6.86 against a factor of 4. Above 1.8x is worth an experiment,
+   * between 1.4x and 1.8x is worth a profile before anyone calls it a finding.
+   */
+  const exceeds = (margin: number) => step1 > FACTOR * margin && step2 > FACTOR * margin;
+  const superlinear = exceeds(1.8);
+  const borderline = !superlinear && exceeds(1.4);
+  const note = base < MIN_MS
+    ? "  (base still short, treat with care)"
+    : superlinear
+      ? "  <- superlinear"
+      : borderline
+        ? "  <- borderline (n log n looks like this; profile before calling it a finding)"
+        : "";
   console.log(
     `${shape.name.padEnd(24)}${String(n).padStart(10)}${base.toFixed(1).padStart(9)}${mid.toFixed(1).padStart(10)}${large.toFixed(1).padStart(11)}${step1.toFixed(2).padStart(8)}${step2.toFixed(2).padStart(8)}${note}`
   );

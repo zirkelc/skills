@@ -92,8 +92,11 @@ if (values.child) {
   const [revA, revB, name] = positionals;
   /** Materialise both trees here, so no child pays for a copy inside its own measurement. Without
    * this the first pair reported a 22% difference between two identical revisions. */
-  materialise(config, revA, "solo");
+  const entryA = materialise(config, revA, "solo");
   materialise(config, revB, "solo");
+  /** Check the name before printing a table header for a run that cannot happen. */
+  const known = (await loadCases(config, entryA, "solo")).map((c) => c.name);
+  if (!known.includes(name)) throw new Error(`No case ${name}. Known: ${known.join(", ")}`);
   console.log(`${name}: ${revA} vs ${revB}, ${PAIRS} alternating process pairs, min ms of ${ITERS} iterations each`);
   console.log(`${"pair".padEnd(6)}${"A".padStart(10)}${"B".padStart(10)}${"delta".padStart(9)}`);
   const deltas: Array<number> = [];

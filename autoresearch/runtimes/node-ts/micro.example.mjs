@@ -87,7 +87,12 @@ if (variant) {
   }
 
   const self = fileURLToPath(import.meta.url);
-  const run = (name) => Number(spawnSync(process.execPath, [self, name], { encoding: "utf8" }).stdout.trim());
+  /** Check the status: without it a child that threw turns into NaN and the run reports nothing. */
+  const run = (name) => {
+    const res = spawnSync(process.execPath, [self, name], { encoding: "utf8" });
+    if (res.status !== 0) throw new Error(`${name} failed:\n${res.stderr}`);
+    return Number(res.stdout.trim());
+  };
   const deltas = [];
   for (let pair = 0; pair < 3; pair++) {
     /** Alternate which variant starts, so a machine that drifts does not decide the answer. */
