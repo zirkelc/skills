@@ -13,9 +13,20 @@ import { parseArgs } from "node:util";
 export interface PerfCase {
   /** Stable name, used as the key in reports and in the guard file. */
   name: string;
-  /** Timed body. Must be deterministic and side-effect free across calls. */
-  run: () => void;
-  /** Serializable sample of observable behaviour, hashed by the guard. */
+  /**
+   * Timed body. Must be deterministic and side-effect free across calls, and must not accumulate
+   * state on anything that outlives one call. A listener list, a cache or a registry that grows per
+   * call makes every iteration slower than the last, which the minimum hides and the paired ratio
+   * cancels, so the table looks ordinary while the case measures its own history.
+   *
+   * It may return a promise, which the harness awaits inside the timed region. The promise has to
+   * cover all of the work: a body that starts a timer, an I/O callback or an unawaited chain and
+   * resolves before that work finishes times the scheduling instead, and looks very fast. An async
+   * body must run a fixed batch per call, so the microtask overhead stays a constant that pairing
+   * can cancel instead of a term that scales with what the change did to the number of awaits.
+   */
+  run: () => void | Promise<void>;
+  /** Serializable sample of observable behaviour, hashed by the guard. May return a promise. */
   collect: () => unknown;
   /** Optional: create and return one retained instance, measured by the memory harness. */
   alloc?: () => unknown;
@@ -71,6 +82,12 @@ export interface HarnessConfig {
   entrySource?: string | undefined;
   /** Package names whose resolution must stay inside the tree. Checked once per materialisation. */
   verifyResolve?: Array<string> | undefined;
+  /**
+   * Case names to keep, from `--only`. A run limited to the case a change targets fits many more
+   * paired iterations into the same time and drops the other cases' heap, which is what makes a
+   * per-case decision possible on a busy machine.
+   */
+  only?: Array<string> | undefined;
 }
 
 const CONFIG_FILE = "perf.config.json";
@@ -91,6 +108,7 @@ export function loadConfig(
       entry: { type: "string" },
       src: { type: "string", multiple: true },
       cases: { type: "string" },
+      only: { type: "string" },
       ...extraOptions,
     },
   });
@@ -118,6 +136,7 @@ export function loadConfig(
       entryModules: fileConfig.entryModules,
       entrySource: fileConfig.entrySource,
       verifyResolve: fileConfig.verifyResolve,
+      only: (values.only as string | undefined)?.split(",").map((n) => n.trim()),
     },
     positionals,
     values,
@@ -273,7 +292,8 @@ function linkWorkspacePackages(config: HarnessConfig, treeDir: string): Set<stri
 }
 
 function findPackages(dir: string): Array<string> {
-  if (!fs.existsSync(dir)) return [];
+  /** A `src` entry can be a single file (a root `index.js`, an entry module), which holds no package. */
+  if (!fs.existsSync(dir) || !fs.statSync(dir).isDirectory()) return [];
   const found: Array<string> = [];
   if (fs.existsSync(path.join(dir, "package.json"))) found.push(dir);
   for (const entry of fs.readdirSync(dir, { withFileTypes: true })) {
@@ -608,7 +628,35 @@ export async function loadCases(config: HarnessConfig, entryPath: string, slot?:
   const casesModule = await import(slot ? `${casesUrl}?slot=${slot}` : casesUrl);
   const build: BuildCases | undefined = casesModule.buildCases;
   if (typeof build !== "function") throw new Error(`${config.cases} must export buildCases(lib).`);
-  return build(lib);
+  const cases = build(lib);
+  if (!config.only) return cases;
+  /** A typo must not measure nothing quietly: name what was asked for and what exists. */
+  const unknown = config.only.filter((name) => !cases.some((c) => c.name === name));
+  if (unknown.length > 0) {
+    throw new Error(`--only names no case: ${unknown.join(", ")}. Known: ${cases.map((c) => c.name).join(", ")}`);
+  }
+  return cases.filter((c) => config.only!.includes(c.name));
+}
+
+/**
+ * Times the same pure CPU loop `repeats` times and reports the spread. The loop cannot become
+ * faster than its true cost, so the spread is what the machine adds: other load, frequency changes,
+ * or a scheduler that moves the process between cores of different speed. Used by `jitter.mts`
+ * before a run and by `ab.mts` after one, because a run is only valid if the machine was quiet for
+ * all of it, which nothing can tell you before it has finished.
+ */
+export function cpuProbe(repeats = 40): { min: number; p50: number; max: number; spread: number } {
+  const times: Array<number> = [];
+  for (let r = 0; r < repeats; r++) {
+    const start = process.hrtime.bigint();
+    let x = 0;
+    for (let i = 0; i < 20_000_000; i++) x = (x + i * 7) % 1_000_003;
+    times.push(Number(process.hrtime.bigint() - start) / 1_000_000);
+  }
+  times.sort((a, b) => a - b);
+  const min = times[0];
+  const p50 = times[times.length >> 1];
+  return { min, p50, max: times[times.length - 1], spread: (p50 / min - 1) * 100 };
 }
 
 /** mulberry32 PRNG, for seeded and reproducible benchmark inputs. */
@@ -632,9 +680,14 @@ export function fnv1a(str: string): string {
   return (h >>> 0).toString(16).padStart(8, "0");
 }
 
-/** Wall-clock duration of `fn` in nanoseconds. */
-export function timeNs(fn: () => void): number {
+/**
+ * Wall-clock duration of `fn` in nanoseconds. A returned promise is awaited inside the timing, so
+ * an async body is measured to its resolution. A synchronous body returns nothing, so it pays one
+ * function return and no microtask: the await never happens.
+ */
+export async function timeNs(fn: () => void | Promise<void>): Promise<number> {
   const start = process.hrtime.bigint();
-  fn();
+  const pending = fn();
+  if (pending) await pending;
   return Number(process.hrtime.bigint() - start);
 }

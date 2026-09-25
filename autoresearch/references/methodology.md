@@ -61,7 +61,19 @@ Do not expect to engineer this away. The harness gives each side its own instanc
 
 So the rule is not "confirm if you are unsure", it is: **a per-case delta on code the change did not touch is not a result until a standalone run agrees with it.** Run one revision per process (`solo.mts` in the node-ts runtime) before you report it, act on it, or discard a change because of it. When the standalone numbers disagree with the paired ones, the row is an artefact of the instrument and belongs in the PR body as such, because a reviewer who runs the harness will see the same line.
 
-Untouched code is where the artefact is easiest to recognise, not where it stops. The same polymorphism inflates the numbers of code the change did touch, on both sides at once, and a maintainer who reproduces a headline figure one build per process will then get a different number than the PR claims. So confirm standalone before a number goes into a PR body whenever the case is small, hot and dominated by call sites rather than by work: leaf operations, wrappers, anything whose body is a few microseconds. Large cases that spend their time inside one algorithm are not exposed this way.
+Untouched code is where the artefact is easiest to recognise, not where it stops. The same polymorphism inflates the numbers of code the change did touch, on both sides at once, and a maintainer who reproduces a headline figure one build per process will then get a different number than the PR claims.
+
+How much it inflates was measured in a later campaign, on one change, three ways:
+
+| Instrument | Delta |
+|---|---|
+| Paired, full suite | -69% and -68% |
+| Paired, focused on the one case | -54% |
+| Standalone, one revision per process | -32% |
+
+Monotonic, and in that order: each level removes another part of the co-residency effect. The full suite carries the other cases' heap and their objects in the shared code; the focused run drops those but still has two revisions in one process; the standalone run has one. All three are honest measurements of different things, which is why each has one job: the full suite says whether anything else moved, the focused run decides the targeted case, and the standalone run is what a maintainer will see. **Every headline number in a PR comes from the standalone run.** The rule is deliberately blunt rather than conditioned on a case size, because the error it prevents runs one way: the paired number is the one that overstates. Where an effect is too small for a standalone run to resolve, which is most near-bar keeps, report the paired number and name the instrument.
+
+Large cases that spend their time inside one algorithm are least exposed to this, small hot cases dominated by call sites most.
 
 Two shapes in the output point at such a row, and both are hints, not verdicts:
 
@@ -83,7 +95,9 @@ So: mirror their workloads (the maintainers' own idea of what is representative)
 - Report two summaries: a **time-weighted total**, which answers "how much work disappeared", and an **equally weighted geometric mean**, which answers "did most cases improve". One case can easily be half the suite total and then decide every keep on its own.
 - Keep bar: about twice the noise floor, never below 1%. One of the two summaries must clear its bar and the other must not regress beyond its own noise band, in both runs.
 - A disagreement between the two is information, not a problem: TOTAL -6% with GEOMEAN +2% is the signature of one big case winning while many small cases lose. Look at the per-case lines before you record the decision.
-- Per-case rule: a change aimed at one path may keep if that case clears twice **its own** band, derived from the calibration runs, and the summaries do not regress. Do not use one global default: bands differ by a factor of three between large cases and short ones.
+- Per-case rule: a change aimed at one path may keep if that case clears twice **its own** band and the summaries do not regress. Do not use one global default: bands differ by a factor of three between large cases and short ones.
+- A per-case band is local in time as well as in scope. One campaign's `cookies` band was 3% at calibration and 13% six experiments later, in the same session on the same machine, which turns a table of bars written once into a set of wrong numbers. Take the band for a targeted case from a control run made the same way, in the same session, as the experiment it judges. The two summaries are stable enough to calibrate once; a single case is not.
+- Focused runs (the suite limited to one case) are the practical form of that. They fit several times the paired iterations into the same wall clock and drop the other cases' heap, which took one campaign's per-case bands from 3-21% to 0.1-2.5% and made per-case decisions possible at all on a shared machine. The precision is partly bought by changing the conditions, so a focused delta is only comparable with a focused control.
 - Do not claim a result from a case whose two runs disagree, for example -10% and -0.3%. Show it as noise.
 
 ## Reading the numbers: run 1, run 2, speed-up

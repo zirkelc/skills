@@ -5,12 +5,19 @@
  * consider representative. Use seeded data only, so both revisions process identical inputs
  * and the guard can hash the results. `lib` is the module namespace of the configured entry.
  *
- * Two rules decide how good the instrument is:
+ * Four rules decide how good the instrument is. `ab.mts --sizes` checks the first one before you
+ * calibrate, and `ab.mts` warns about the third one while it runs.
  *
  * - Keep a timed body between roughly 5 and 50 ms. A body of hundreds of milliseconds contains a
  *   collection almost by construction, which no estimator can filter out.
  * - Let a case own its inputs through `setup`/`teardown`. Inputs of every case held alive for the
  *   whole run exist twice, once per revision, and make every later collection slower on both sides.
+ * - Never let a case accumulate state across calls. Listeners on a long-lived object, a cache or a
+ *   registry that grows per call make every iteration slower than the last, and the harness cannot
+ *   see it: the reported milliseconds are a minimum and the delta is a paired ratio, so both hide a
+ *   drift that hits both sides. One campaign spent its first profile finding 67% of a case's time in
+ *   a duplicate check walking a listener list the case itself had grown.
+ * - An async body must run a fixed batch per call, and its promise must cover all of the work.
  */
 import { type PerfCase, rng } from "./harness.mts";
 /**
@@ -92,5 +99,52 @@ export function buildCases(lib: any): Array<PerfCase> {
     });
   }
 
+  /**
+   * Async workload. The batch is fixed, so the microtask overhead is a constant on both sides
+   * instead of a term that moves with whatever the change did to the number of awaits. The promise
+   * has to cover all of the work: a body that starts something and resolves before it finishes
+   * times the scheduling and looks very fast.
+   *
+   * Anything the workload would normally reach over the network or the disk is replaced by an
+   * in-process double, or the measurement is of the machine's IO and not of the library.
+   */
+  {
+    const requests = Array.from({ length: 200 }, (_, i) => ({ url: `https://example.test/item/${i}` }));
+    cases.push({
+      name: "resolve-batch",
+      run: async () => {
+        for (const r of requests) await lib.resolve(r, { transport: lib.nullTransport });
+      },
+      collect: async () => (await lib.resolve(requests[0], { transport: lib.nullTransport })).status,
+    });
+  }
+
   return cases;
+}
+
+/**
+ * Optional: named checks for `differential.mts`, for inputs that are not strings. This is where a
+ * change that stops copying something is caught, and the aliasing has to be exercised in both
+ * directions, because a shared structure usually shows up in only one of them.
+ */
+export function buildDifferential(lib: any) {
+  return {
+    fixed: ["", "a", "a\r\nb", "  padded  "],
+    random: (rand: () => number) => String(Math.floor(rand() * 1e9)),
+    describe: (input: string) => lib.parse(input),
+    scenarios: {
+      "derived-then-mutate-source": () => {
+        const source = { headers: { a: "1" } };
+        const derived = lib.derive(source);
+        source.headers.a = "2";
+        return { derived: lib.describe(derived), source: source.headers };
+      },
+      "derived-then-mutate-derived": () => {
+        const source = { headers: { a: "1" } };
+        const derived = lib.derive(source);
+        lib.setHeader(derived, "a", "3");
+        return { derived: lib.describe(derived), source: source.headers };
+      },
+    },
+  };
 }

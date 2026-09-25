@@ -2,6 +2,14 @@
 
 Turn the linear branch of kept commits into a few independent PRs that reviewers can judge one at a time. Each PR must stand alone: it applies to the base without the others, it passes the tests alone, and its numbers come from measuring it alone.
 
+## 0. Review the kept commits, and treat the review as measurement
+
+Read the kept commits again before you group them. A campaign optimises for one small change at a time, so the series arrives with duplicated helpers, an unrolled loop in one of two places that need it, and forms that were convenient while experimenting.
+
+The rule that makes this safe is short: **any edit after the last measurement invalidates that measurement.** A review suggestion that touches a hot path is an experiment, and it gets the same treatment: the isolation check first, then the branch verification in section 3, and the numbers in the body come from the branch, never from the campaign log. In one campaign the review found no bugs and still changed the results three ways. One cleanup was neutral. One moved a shared helper so that a second code path got the unrolled loop as well, which doubled that PR's effect and made the campaign log an understatement. One was slower and would have shipped as an improvement, and the isolation check is what caught it.
+
+So: review, then re-measure, then group. Never review after the verification table is written.
+
 ## 1. Group the commits
 
 Group kept commits by theme (the path or mechanism they touch), not by the order in which they were made. Good groups are the ones a maintainer can accept or reject as a unit, for example "error construction", "schema construction", "parse fast paths". Four PRs from eleven commits worked well. A group with a single strong commit is fine.
@@ -22,6 +30,12 @@ cd <path> && git cherry-pick <commit> <commit> ...
 ```
 
 Branch names: hyphenated (`perf-error-path`), not slash-separated, because a remote branch named `perf` blocks every `perf/*` ref.
+
+Three things about the worktree itself, each of which costs ten confused minutes the first time:
+
+- Put it **outside** the repository directory, so no test glob, formatter or type checker finds a second copy of the sources.
+- It has no `node_modules`. A symlink to the main checkout's is enough, but `.gitignore` says `node_modules/`, and a pattern with a trailing slash matches a directory, which a symlink is not. So the symlink shows as untracked until you add it to `.git/info/exclude`.
+- Submodules are empty in a new worktree, which silently disables any gate that lives in one (a conformance suite, a fixture corpus). A symlink to the main checkout's submodule directory works; afterwards `trash` the symlink and recreate the empty directory, or the next `git submodule` command in the main checkout is confused.
 
 Resolve conflicts so that each branch contains only its own group's code:
 
@@ -48,8 +62,8 @@ Remove those copies again before switching back to the campaign branch, which tr
 Run from the harness location (the campaign branch):
 
 1. One noise-control run with identical code on both sides.
-2. Two A/B runs of the base against the branch.
-3. A standalone run per headline case (one revision per process), because in-process pairing inflates small, call-site-bound cases on both sides. The number a maintainer reproduces is the standalone one.
+2. Two A/B runs of the base against the branch, focused on the cases the PR targets where the full suite cannot resolve them.
+3. A standalone run per headline case, alternating whole processes (`solo.mts A B <case> --pairs 4` in node-ts). **Every headline number in the body comes from here.** In-process pairing inflates small, call-site-bound cases on both sides, and by a lot: one change measured -69% paired, -54% focused and -32% standalone. A reviewer who reproduces a third of the claim stops believing the rest of the PR, and two PRs of an earlier campaign were closed over exactly that kind of credibility. Where an effect is too small for a standalone run to resolve, give the paired number and name the instrument.
 
 Build the verification table from these runs, never from the campaign log: isolated effects differ from stacked ones.
 
@@ -69,13 +83,28 @@ Use `templates/pr-body.md`. Every PR gets the same preamble (the campaign and it
 - **Instrument artefacts**: if a case shows a delta that standalone timing does not reproduce (see `methodology.md`), say so in the body. A reviewer who runs the harness will see the same line.
 - **Companion PRs**: links to the other PRs of the campaign. Add these only after all PRs exist, with their real numbers. Placeholder numbers such as `#1 #2` link to, and notify, the old issues 1 and 2 of the target repo.
 
-Also follow the repo's own PR conventions (templates, AGENTS.md or CLAUDE.md rules, tone). Write bodies to files and pass them with `--body-file`. Inline heredocs break backticks and template literals.
+Also follow the repo's own PR conventions (templates, AGENTS.md or CLAUDE.md rules, tone). Where the repo has a template, the campaign preamble goes first and the repo's own sections follow it, so a maintainer finds the structure they expect. **Never tick a DCO or CLA checkbox.** It is a declaration by a person about their own work, and an agent cannot make it; leave it unticked and say so when you present the PR.
+
+Write bodies to files and pass them with `--body-file`. Inline heredocs break backticks and template literals. When several PRs cross-reference each other, generate all the bodies from one script with placeholders (PR numbers, companion links, the harness link at a full hash), create the PRs, then fill the placeholders with `gh pr edit`. Four bodies written by hand drift apart; four generated from one script do not.
 
 ## 5. Confirm and create, one PR at a time
 
 Before any of this touches a remote, grep the plan, the log and the cases for private names, paths and hosts. PR bodies link the campaign branch publicly, and a plan written during the campaign names the downstream repo that motivated the work. One campaign published a private repository's name eight times that way. This is a blocking check, not a tidy-up.
 
 Check the base's own CI before you open anything. When a PR shows failing jobs, compare the failing set with the base's last run: a failure that also fails on the base is not yours, and saying so in the body saves the maintainer the same investigation. Occasionally the comparison finds a real bug in their CI, which is worth its own issue.
+
+On a **first** contribution to a repository, GitHub shows no checks at all until a maintainer approves the workflow runs. That looks exactly like broken CI, and the natural reactions (push again, ask what is wrong) are both wrong. Say so when you hand the PR over, and wait.
+
+The base moves between the verification and the creation, sometimes by hours. Check what changed before you open anything:
+
+```sh
+git diff --stat <measured-base> origin/main          # do the touched files or the invariants overlap?
+git merge-tree --write-tree origin/main <branch>     # does it still merge cleanly? no working tree touched
+```
+
+No overlap means the branch can stay on the base it was measured against, and the body can say which commit that was. An overlap in the touched files, or in the files an invariant depends on, means re-verify on the new base rather than rebase and hope.
+
+`gh repo fork <owner>/<repo> --clone=false` is the form that works when you only need the fork; adding `--remote=false` to it failed.
 
 Use the current PR template from the organisation (`.github/pull-request-template.md` in its `.github` repo), not the one copied from a merged PR, which may be an old revision. Keep machine markers such as `<!--do not edit: pr-->`, and tick only what is true.
 

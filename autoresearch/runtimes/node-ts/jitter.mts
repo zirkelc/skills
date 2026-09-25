@@ -14,31 +14,25 @@
  */
 import * as os from "node:os";
 import { parseArgs } from "node:util";
+import { cpuProbe } from "./harness.mts";
 
 const { values } = parseArgs({
   args: process.argv.slice(2),
   options: { repeats: { type: "string" }, max: { type: "string" }, wait: { type: "string" } },
 });
 const REPEATS = Number(values.repeats ?? 40);
-/** Measure below this spread. 5% still runs, but its numbers were not usable in practice. */
+/**
+ * Measure below this spread. 5% still runs, but its numbers were not usable in practice. A machine
+ * that never reaches the default (a shared machine, other agents) can be measured with a higher
+ * `--max`, but then record the value in the plan and expect the keep bar to rise with it: the bar is
+ * calibrated on the same machine as the experiments, so a noisier machine buys fewer decidable
+ * experiments rather than looser ones.
+ */
 const MAX = Number(values.max ?? 2);
 /** Minutes to keep probing for a quiet machine before giving up. */
 const WAIT_MINUTES = values.wait === undefined ? 0 : Number(values.wait || 10);
 
-function probe(): { min: number; p50: number; max: number; spread: number } {
-  const times: Array<number> = [];
-  for (let r = 0; r < REPEATS; r++) {
-    const start = process.hrtime.bigint();
-    let x = 0;
-    for (let i = 0; i < 20_000_000; i++) x = (x + i * 7) % 1_000_003;
-    times.push(Number(process.hrtime.bigint() - start) / 1_000_000);
-  }
-  times.sort((a, b) => a - b);
-  const min = times[0];
-  const p50 = times[times.length >> 1];
-  return { min, p50, max: times[times.length - 1], spread: (p50 / min - 1) * 100 };
-}
-
+const probe = () => cpuProbe(REPEATS);
 const deadline = Date.now() + WAIT_MINUTES * 60_000;
 let result = probe();
 while (result.spread > MAX && Date.now() < deadline) {

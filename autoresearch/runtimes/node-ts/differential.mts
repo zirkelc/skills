@@ -30,6 +30,17 @@ export interface DifferentialSuite {
    * output is still a behaviour change.
    */
   describe: (input: string) => unknown;
+  /**
+   * Named checks whose input is not a string: an object with symbol keys, a proxy, a getter that
+   * records the order it is read in, two values derived from one source. Each returns everything
+   * observable about what it did, like `describe`.
+   *
+   * This is where a change that stops copying something is caught. The recipe: derive a value from
+   * a source, mutate the source, report the derived value; then derive again, mutate the derived
+   * value, report the source. A shared structure shows up in one of the two directions, and a guard
+   * over ordinary inputs sees neither.
+   */
+  scenarios?: Record<string, () => unknown>;
 }
 
 const HARNESS_DIR = import.meta.dirname;
@@ -51,15 +62,26 @@ async function suiteFor(entry: string): Promise<DifferentialSuite> {
   return casesModule.buildDifferential(lib);
 }
 
-/** Inputs are generated from the seed, so both processes see the same ones in the same order. */
-function inputsOf(suite: DifferentialSuite): Array<string> {
+/**
+ * One unit of comparison: a named scenario, or a string input. Scenarios come first and keep their
+ * own list, so a scenario name can never collide with an input and the random inputs stay
+ * reproducible by index.
+ */
+type Item = { scenario: string } | { input: string };
+
+/** Items are generated from the seed, so both processes see the same ones in the same order. */
+function itemsOf(suite: DifferentialSuite): Array<Item> {
   const rand = rng(SEED);
-  return [...suite.fixed, ...Array.from({ length: COUNT }, () => suite.random(rand))];
+  return [
+    ...Object.keys(suite.scenarios ?? {}).map((scenario) => ({ scenario })),
+    ...suite.fixed.map((input) => ({ input })),
+    ...Array.from({ length: COUNT }, () => ({ input: suite.random(rand) })),
+  ];
 }
 
-function describeSafely(suite: DifferentialSuite, input: string): unknown {
+function describeSafely(suite: DifferentialSuite, item: Item): unknown {
   try {
-    return suite.describe(input);
+    return "scenario" in item ? suite.scenarios![item.scenario]() : suite.describe(item.input);
   } catch (error) {
     return { __threw: String(error) };
   }
@@ -67,12 +89,12 @@ function describeSafely(suite: DifferentialSuite, input: string): unknown {
 
 if (values.child) {
   const suite = await suiteFor(positionals[0]);
-  const inputs = inputsOf(suite);
+  const items = itemsOf(suite);
   const dump = values.dump === undefined ? undefined : Number(values.dump);
   if (dump !== undefined) {
-    console.log(JSON.stringify({ input: inputs[dump], result: describeSafely(suite, inputs[dump]) }));
+    console.log(JSON.stringify({ item: items[dump], result: describeSafely(suite, items[dump]) }));
   } else {
-    console.log(JSON.stringify(inputs.map((input) => fnv1a(JSON.stringify(describeSafely(suite, input))))));
+    console.log(JSON.stringify(items.map((item) => fnv1a(JSON.stringify(describeSafely(suite, item))))));
   }
 } else {
   const revA = positionals[0] ?? "HEAD";
@@ -112,12 +134,12 @@ if (values.child) {
   const index = hashesA.findIndex((h, i) => h !== hashesB[i]);
 
   if (index === -1) {
-    console.log(`identical on ${hashesA.length} inputs (fixed + ${COUNT} random, seed ${SEED})`);
+    console.log(`identical on ${hashesA.length} items (scenarios + fixed + ${COUNT} random, seed ${SEED})`);
   } else {
     const a = run(entryA, ["--dump", String(index)]);
     const b = run(entryB, ["--dump", String(index)]);
-    console.error(`DIFFERENT at input ${index}`);
-    console.error(`input: ${JSON.stringify(a.input)}`);
+    console.error(`DIFFERENT at item ${index}`);
+    console.error(`item: ${JSON.stringify(a.item)}`);
     console.error(`${revA}: ${JSON.stringify(a.result)}`);
     console.error(`${revB}: ${JSON.stringify(b.result)}`);
     process.exit(1);

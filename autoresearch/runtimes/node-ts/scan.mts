@@ -14,6 +14,12 @@
  * curvature. And the scan measures n, 4n and 16n, flagging only when **both** steps exceed the
  * factor: one bad step is noise, two in a row is a shape.
  *
+ * Size is not only input length. The second shape to try is **N operations against one long-lived
+ * object**: a listener list, a cache, a registry, a header collection that a pipeline appends to.
+ * Those grow with the life of an object rather than with the size of an input, so no input-length
+ * shape reaches them, and a duplicate check that walks the list turns a loop into O(n²). One
+ * campaign found exactly that, with step ratios of 17x and 24x.
+ *
  * The cases module exports `buildScan(lib)`: shapes that take a size and return an input.
  */
 import * as path from "node:path";
@@ -26,7 +32,7 @@ export interface ScanShape {
   /** Builds an input of roughly `n` units (characters, elements, nodes: whatever the domain uses). */
   input: (n: number) => unknown;
   /** Runs the library over one input. */
-  run: (input: unknown) => void;
+  run: (input: unknown) => void | Promise<void>;
   /** Starting size. The scan grows it until the body is long enough to time, then scales from there. */
   n?: number;
 }
@@ -49,10 +55,10 @@ if (typeof casesModule.buildScan !== "function") {
 }
 const shapes: Array<ScanShape> = casesModule.buildScan(lib);
 
-function best(shape: ScanShape, input: unknown): number {
-  shape.run(input);
+async function best(shape: ScanShape, input: unknown): Promise<number> {
+  await shape.run(input);
   let min = Number.POSITIVE_INFINITY;
-  for (let r = 0; r < REPS; r++) min = Math.min(min, timeNs(() => shape.run(input)));
+  for (let r = 0; r < REPS; r++) min = Math.min(min, await timeNs(() => shape.run(input)));
   return min / 1_000_000;
 }
 
@@ -64,14 +70,14 @@ console.log(
 for (const shape of shapes) {
   /** Grow the base until the body is long enough that noise cannot pass for curvature. */
   let n = shape.n ?? 1_000;
-  let base = best(shape, shape.input(n));
+  let base = await best(shape, shape.input(n));
   for (let grow = 0; base < MIN_MS && grow < 8; grow++) {
     n *= 2;
-    base = best(shape, shape.input(n));
+    base = await best(shape, shape.input(n));
   }
 
-  const mid = best(shape, shape.input(n * FACTOR));
-  const large = best(shape, shape.input(n * FACTOR * FACTOR));
+  const mid = await best(shape, shape.input(n * FACTOR));
+  const large = await best(shape, shape.input(n * FACTOR * FACTOR));
   const step1 = mid / base;
   const step2 = large / mid;
   /** Both steps must exceed the factor by a margin: one is noise, two in a row is a shape. */

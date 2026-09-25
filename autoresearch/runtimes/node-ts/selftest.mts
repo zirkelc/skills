@@ -24,6 +24,8 @@ const write = (rel: string, body: string) => {
 };
 
 write("package.json", JSON.stringify({ name: "selftest-root", private: true, type: "module", workspaces: ["packages/*"] }));
+/** A `src` entry that is a file, not a directory: it holds no package and must not crash the scan. */
+write("index.js", 'export { tag } from "w";\n');
 write("packages/w/package.json", JSON.stringify({ name: "w", version: "1.0.0", type: "module", main: "index.js" }));
 write("packages/w/index.js", 'export const tag = "base";\n');
 write("node_modules/d/package.json", JSON.stringify({ name: "d", version: "1.0.0", type: "module", main: "index.js", dependencies: { w: "*", s: "*" } }));
@@ -39,7 +41,7 @@ const { materialise, WORKTREE } = await import("./harness.mts");
 const config = {
   root,
   entry: "packages/w/index.js",
-  src: ["packages/w"],
+  src: ["packages/w", "index.js"],
   cases: "perf/cases.mts",
   entryModules: { w: "w", d: "d" },
   verifyResolve: ["w", "d"],
@@ -61,6 +63,7 @@ check("dependent of a workspace package is copied", copied.includes("d"));
 check("shared package is not copied", !copied.includes("s"));
 check("workspace package is linked", fs.lstatSync(path.join(treeDir, "node_modules/w")).isSymbolicLink());
 check("ancestor manifest travels with the sources", fs.existsSync(path.join(treeDir, "packages/w/package.json")));
+check("a file as a src entry is materialised", fs.existsSync(path.join(treeDir, "index.js")));
 
 /** The clean tree must pass: a shared dependency resolving to the root is not a leak. */
 let clean = true;

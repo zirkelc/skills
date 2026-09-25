@@ -1,22 +1,35 @@
 /**
- * Characterisation guard: hashes the observable behaviour of every case against the working
- * tree and compares it with the recorded expectations.
+ * Characterisation guard: hashes the observable behaviour of every case and compares it with the
+ * recorded expectations.
  *
- *   node --import tsx perf/guard.mts            check, exit 1 on any difference
- *   node --import tsx perf/guard.mts --update   record expectations (only before the first experiment)
+ *   node --import tsx perf/guard.mts             check the working tree, exit 1 on any difference
+ *   node --import tsx perf/guard.mts --update    record expectations (once, before the first experiment)
+ *   node --import tsx perf/guard.mts main --update    add the cases you added, recorded against the base
+ *
+ * Once the expectation file exists, `--update` can only **add** keys. An existing key whose hash
+ * changed makes it fail, whichever revision it was computed from. That is the rule "never update the
+ * guard to make a change pass", enforced rather than remembered; re-recording everything means
+ * deleting the file, which is a visible act.
+ *
+ * The third form is the campaign rule for a case added mid-campaign: its expectation has to come
+ * from the base revision, not from the working tree that the new case was written against. Run it
+ * without `--only`, even though only one case is new. Recomputing the others against the base costs
+ * one pass and is the check that nobody moved an existing case while adding the new one, which is
+ * the way a guard quietly stops guarding.
  */
 import * as fs from "node:fs";
 import * as path from "node:path";
 import { WORKTREE, fnv1a, loadCases, loadConfig, materialise } from "./harness.mts";
 
 const HARNESS_DIR = import.meta.dirname;
-const { config, values } = loadConfig(HARNESS_DIR, process.argv.slice(2), {
+const { config, positionals, values } = loadConfig(HARNESS_DIR, process.argv.slice(2), {
   update: { type: "boolean" },
   expected: { type: "string" },
 });
 
+const rev = positionals[0] ?? WORKTREE;
 const expectedPath = path.resolve((values.expected as string | undefined) ?? path.join(HARNESS_DIR, "guard-expected.json"));
-const cases = await loadCases(config, materialise(config, WORKTREE, "guard"));
+const cases = await loadCases(config, materialise(config, rev, "guard"));
 
 /** Error objects serialize to `{}`, so capture their observable parts explicitly. */
 function replacer(_key: string, value: unknown): unknown {
@@ -27,24 +40,60 @@ function replacer(_key: string, value: unknown): unknown {
   return value;
 }
 
-const actual: Record<string, { hash: string; bytes: number }> = {};
-for (const c of cases) {
-  let sample: unknown;
-  try {
-    c.setup?.();
-    sample = c.collect();
-  } catch (error) {
-    sample = { __threw: replacer("", error) };
-  } finally {
-    c.teardown?.();
+type Samples = Record<string, { hash: string; bytes: number }>;
+
+async function sampleAll(): Promise<Samples> {
+  const out: Samples = {};
+  for (const c of cases) {
+    let sample: unknown;
+    try {
+      c.setup?.();
+      sample = await c.collect();
+    } catch (error) {
+      sample = { __threw: replacer("", error) };
+    } finally {
+      c.teardown?.();
+    }
+    const json = JSON.stringify(sample, replacer);
+    out[c.name] = { hash: fnv1a(json), bytes: json.length };
   }
-  const json = JSON.stringify(sample, replacer);
-  actual[c.name] = { hash: fnv1a(json), bytes: json.length };
+  return out;
 }
 
+const actual = await sampleAll();
+
 if (values.update) {
-  fs.writeFileSync(expectedPath, `${JSON.stringify(actual, null, 2)}\n`);
-  console.log(`wrote ${path.relative(process.cwd(), expectedPath)} (${Object.keys(actual).length} cases)`);
+  /**
+   * Sample a second time and refuse to record anything that differs. A case that samples a random
+   * value, a timestamp, an address or an input its own body mutated would otherwise be written into
+   * the expectations, and the guard would fail at random for the rest of the campaign, which teaches
+   * the reader to ignore it. For output that must contain randomness, sample the deterministic part
+   * and add a verdict that the rest is self-consistent (a frame decodes back to its payload).
+   */
+  const second = await sampleAll();
+  const unstable = Object.keys(actual).filter((name) => actual[name].hash !== second[name]?.hash);
+  if (unstable.length > 0) {
+    console.error(`not recorded: ${unstable.join(", ")} gave a different sample on a second run against unchanged code.`);
+    console.error("A case samples randomness, a timestamp, or an input that its own body mutates. Sample the deterministic part plus a round-trip verdict.");
+    process.exit(1);
+  }
+
+  const existing: Samples = fs.existsSync(expectedPath) ? JSON.parse(fs.readFileSync(expectedPath, "utf8")) : {};
+  const changed = Object.keys(actual).filter((name) => existing[name] && existing[name].hash !== actual[name].hash);
+  if (changed.length > 0) {
+    for (const name of changed) {
+      console.error(`MISMATCH ${name}: recorded ${JSON.stringify(existing[name])}, now ${JSON.stringify(actual[name])}`);
+    }
+    console.error(`--update adds cases, it never rewrites one. Behaviour changed @ ${rev}: discard the change, or delete ${path.relative(process.cwd(), expectedPath)} deliberately.`);
+    process.exit(1);
+  }
+
+  const added = Object.keys(actual).filter((name) => !existing[name]);
+  const merged = { ...existing, ...actual };
+  fs.writeFileSync(expectedPath, `${JSON.stringify(merged, null, 2)}\n`);
+  console.log(
+    `wrote ${path.relative(process.cwd(), expectedPath)} @ ${rev}: ${Object.keys(merged).length} cases, ${added.length} added${added.length ? ` (${added.join(", ")})` : ""}`
+  );
   process.exit(0);
 }
 
@@ -53,8 +102,10 @@ if (!fs.existsSync(expectedPath)) {
   process.exit(2);
 }
 
-const expected = JSON.parse(fs.readFileSync(expectedPath, "utf8"));
-const names = new Set([...Object.keys(expected), ...Object.keys(actual)]);
+const expected: Samples = JSON.parse(fs.readFileSync(expectedPath, "utf8"));
+/** A filtered run can only speak about the cases it loaded; an unfiltered one must also catch a
+ * case that disappeared from the module. */
+const names = config.only ? new Set(config.only) : new Set([...Object.keys(expected), ...Object.keys(actual)]);
 let failed = false;
 for (const name of names) {
   const e = expected[name];
@@ -68,4 +119,4 @@ if (failed) {
   console.error("guard FAILED: observable behaviour changed");
   process.exit(1);
 }
-console.log(`guard OK (${names.size} cases)`);
+console.log(`guard OK (${names.size} cases @ ${rev})`);

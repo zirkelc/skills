@@ -2,11 +2,18 @@
  * CPU profile of the cases against the working tree, aggregated per function.
  *
  *   node --import tsx perf/profile.mts [case,case,...] [--seconds 4] [--top 30]
+ *   node --import tsx perf/profile.mts --by-area          self time by path prefix
+ *   node --import tsx perf/profile.mts --lines src/parse.js:120   line view of an anonymous function
  *
  * Profiles in-process through the inspector, writes the raw profile to `.perf-prof/` in the
  * repo root (open it in Chrome DevTools if needed), and prints self and total time per
  * function. Frames from `node_modules` and Node internals are dropped: loader frames are an
  * artefact of running through a TypeScript loader.
+ *
+ * Self time above total time for a frame means V8 inlined it into its caller. The two numbers are
+ * then attributed to different frames and the line-level view inside that function is not evidence:
+ * one campaign spent an experiment on a statement that a profile called hot and that no longer
+ * existed as a separate frame.
  */
 import * as fs from "node:fs";
 import { Session } from "node:inspector/promises";
@@ -20,20 +27,20 @@ const { config, positionals, values } = loadConfig(HARNESS_DIR, process.argv.sli
   deps: { type: "boolean" },
   callers: { type: "string" },
   lines: { type: "string" },
+  "by-area": { type: "boolean" },
 });
 /** Dependency frames matter when the library hands its hot loops to them (parser, selector engine). */
 const DEPS = Boolean(values.deps);
 const SECONDS = Number(values.seconds ?? 4);
 const TOP = Number(values.top ?? 30);
 
-const all = await loadCases(config, materialise(config, WORKTREE, "profile"));
-const only = positionals[0]?.split(",");
-const selected = only ? all.filter((c) => only.includes(c.name)) : all;
-if (selected.length === 0) throw new Error(`No case matches. Known: ${all.map((c) => c.name).join(", ")}`);
+/** A positional case list is the older spelling of `--only`; both end up in the same filter. */
+if (positionals[0] && !config.only) config.only = positionals[0].split(",");
+const selected = await loadCases(config, materialise(config, WORKTREE, "profile"));
 
 for (const c of selected) c.setup?.();
 /** Warm up before sampling so the profile shows optimized code, not the interpreter. */
-for (const c of selected) for (let i = 0; i < 10; i++) c.run();
+for (const c of selected) for (let i = 0; i < 10; i++) await c.run();
 
 const session = new Session();
 session.connect();
@@ -42,7 +49,7 @@ await session.post("Profiler.setSamplingInterval", { interval: 100 });
 await session.post("Profiler.start");
 const start = Date.now();
 while (Date.now() - start < SECONDS * 1_000) {
-  for (const c of selected) c.run();
+  for (const c of selected) await c.run();
 }
 const { profile } = (await session.post("Profiler.stop")) as { profile: any };
 session.disconnect();
@@ -140,12 +147,49 @@ print("self time", aggSelf);
 print("total time", aggTotal);
 
 /**
+ * Self time by path prefix. It answers the question every campaign asks once and by hand: how much
+ * of this profile is my instrument rather than the library. A case driven through a mock, a fixture
+ * loader or a test double is only trustworthy when that share is small, and "small" has to be a
+ * number.
+ */
+if (values["by-area"]) {
+  const byArea = new Map<string, number>();
+  for (const n of nodes) {
+    const t = selfTime.get(n.id) ?? 0;
+    if (t === 0) continue;
+    const url = n.callFrame.url;
+    const classified = withoutTreePrefix(url);
+    let area: string;
+    if (!url) area = "(vm)";
+    else if (url.startsWith("node:")) area = "node:";
+    else if (classified.includes("node_modules/")) {
+      const rest = classified.slice(classified.lastIndexOf("node_modules/") + "node_modules/".length);
+      area = `node_modules/${rest.startsWith("@") ? rest.split("/").slice(0, 2).join("/") : rest.split("/")[0]}/`;
+    } else {
+      const rel = classified.startsWith(rootUrl) ? classified.slice(rootUrl.length) : classified.replace(/^file:\/\//, "");
+      /** Two directory levels: deep enough to separate `lib/web/` from `lib/core/`, shallow enough
+       * that the list stays readable. A root-level file lands under its directory, not its own name. */
+      const dir = rel.split("/").slice(0, -1);
+      area = dir.length === 0 ? "(root)" : `${dir.slice(0, 2).join("/")}/`;
+    }
+    byArea.set(area, (byArea.get(area) ?? 0) + t);
+  }
+  print("self time by area", byArea);
+}
+
+/**
  * The top-function view finds a hot function and says nothing about which of its callers or which
  * of its statements to change, which is the actual decision. These two views answer that.
+ *
+ * A frame can be selected by function name, or as `file:line` for the anonymous functions that name
+ * selection cannot reach (converters, callbacks, arrow functions in a table).
  */
 const focus = (values.callers ?? values.lines) as string | undefined;
 if (focus) {
-  const matches = (n: ProfileNode) => n.callFrame.functionName === focus;
+  const atLine = focus.match(/^(.*):(\d+)$/);
+  const matches = atLine
+    ? (n: ProfileNode) => withoutTreePrefix(n.callFrame.url).endsWith(atLine[1]) && n.callFrame.lineNumber + 1 === Number(atLine[2])
+    : (n: ProfileNode) => n.callFrame.functionName === focus;
   if (values.callers) {
     const byCaller = new Map<string, number>();
     for (const n of nodes.filter(matches)) {
@@ -164,7 +208,7 @@ if (focus) {
       }
     }
     if (byLine.size === 0) {
-      console.log(`\nno line ticks for ${focus}: is the name spelled as it appears above?`);
+      console.log(`\nno line ticks for ${focus}: is the name spelled as it appears above? An anonymous function is selected as file:line.`);
     } else {
       /** Ticks are counts, not microseconds: print them as counts and as a share of this
        * function's own ticks, or every line reads as 0.0 ms and the ranking says nothing. */
