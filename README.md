@@ -87,8 +87,7 @@ Each skill is tagged with how it can be invoked:
 
 - **autoresearch** moved to its own repository, with its history: [zirkelc/autoresearch-skill](https://github.com/zirkelc/autoresearch-skill). It runs a performance campaign on any repo as an autoresearch loop, and it outgrew a directory here: a method, two references, five templates and a working harness per runtime.
   ```bash
-  git clone https://github.com/zirkelc/autoresearch-skill.git ~/Developer/autoresearch-skill
-  ln -s ~/Developer/autoresearch-skill ~/.claude/skills/autoresearch
+  npx skills add zirkelc/autoresearch-skill
   ```
 
 ### Meta
