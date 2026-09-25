@@ -1,5 +1,0 @@
-{
-  "entry": "packages/lib/src/index.ts",
-  "src": ["packages/lib/src"],
-  "cases": "perf/cases.mts"
-}

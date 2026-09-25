@@ -85,10 +85,10 @@ Each skill is tagged with how it can be invoked:
 
 ### Performance
 
-- **autoresearch**: Run a performance campaign on any repo as an autoresearch loop. Pin behaviour with a characterisation guard, compare two git revisions with a paired A/B harness, calibrate the noise floor, keep or discard one small experiment at a time, and package the kept commits into independently verified PRs (each one confirmed before creation). Ships ready-to-copy harnesses per runtime (`node-ts` in-process, `generic` for any benchmark command).
-  - `invocable: auto`
+- **autoresearch** moved to its own repository, with its history: [zirkelc/autoresearch-skill](https://github.com/zirkelc/autoresearch-skill). It runs a performance campaign on any repo as an autoresearch loop, and it outgrew a directory here: a method, two references, five templates and a working harness per runtime.
   ```bash
-  npx skills add zirkelc/skills/autoresearch
+  git clone https://github.com/zirkelc/autoresearch-skill.git ~/Developer/autoresearch-skill
+  ln -s ~/Developer/autoresearch-skill ~/.claude/skills/autoresearch
   ```
 
 ### Meta
