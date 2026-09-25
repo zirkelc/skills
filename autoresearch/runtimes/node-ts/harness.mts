@@ -639,6 +639,20 @@ export async function loadCases(config: HarnessConfig, entryPath: string, slot?:
 }
 
 /**
+ * Reports a failed child process and exits.
+ *
+ * A harness error (an unknown case name, a missing export, a resolution escape) carries its whole
+ * message on one line, written to be read. Rethrowing it from the parent wraps that line in the
+ * child's stack and the parent's, which is how a clear message becomes something to scroll past. An
+ * unexpected crash keeps its full output, because there the stack is the message.
+ */
+export function failFromChild(stderr: string): never {
+  const line = stderr.split("\n").find((l) => l.startsWith("Error:"));
+  console.error(line ?? `child failed:\n${stderr}`);
+  process.exit(1);
+}
+
+/**
  * Times the same pure CPU loop `repeats` times and reports the spread. The loop cannot become
  * faster than its true cost, so the spread is what the machine adds: other load, frequency changes,
  * or a scheduler that moves the process between cores of different speed. Used by `jitter.mts`

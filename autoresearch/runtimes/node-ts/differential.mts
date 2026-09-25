@@ -17,7 +17,7 @@
 import { spawnSync } from "node:child_process";
 import * as path from "node:path";
 import { fileURLToPath, pathToFileURL } from "node:url";
-import { WORKTREE, fnv1a, loadConfig, materialise, rng } from "./harness.mts";
+import { WORKTREE, failFromChild, fnv1a, loadConfig, materialise, rng } from "./harness.mts";
 
 export interface DifferentialSuite {
   /** Hand-picked edge cases: empty, padded, CR and CRLF, nesting, anything a fix could break. */
@@ -124,7 +124,7 @@ if (values.child) {
       ],
       { encoding: "utf8", maxBuffer: 256 * 1024 * 1024, stdio: ["ignore", "pipe", "pipe"] }
     );
-    if (res.status !== 0) throw new Error(`child failed:\n${res.stderr}`);
+    if (res.status !== 0) failFromChild(res.stderr ?? "");
     const lines = res.stdout.trim().split("\n");
     return JSON.parse(lines[lines.length - 1]);
   };

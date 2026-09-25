@@ -32,7 +32,7 @@ Node 24 runs the `.mts` files directly (it strips the types), so the harness its
    - `src`: the paths archived per revision. Include every directory the entry imports by relative path. Workspace packages imported **by name** resolve through `node_modules` to the working tree, not to the archived revision. Add them to `src` and import them by path, or accept that they are shared between sides.
    - `cases`: the cases module (default `perf/cases.mts`).
 4. Write `perf/cases.mts` from `cases.example.mts`. Mirror the workloads of the repo's existing benchmarks and use seeded data only.
-5. Check the case bodies before you calibrate: `node perf/ab.mts --sizes` times each one and names the ones outside the usable range. It costs seconds, and a fixture found to be wrong during calibration costs the calibration.
+5. Check the case bodies before you calibrate: `node perf/ab.mts --sizes` times each one and names the ones outside the usable range. It costs seconds, and a fixture found to be wrong during calibration costs the calibration. On one campaign's first attempt it flagged 7 of 11 cases. Run it again after a large keep, which can shrink a case out of the range: the instrument degrades as the campaign succeeds.
 6. Trees go to `node_modules/.perf-trees/` automatically, where every tool already ignores them. Only `.perf-prof/` needs an exclude entry:
    ```sh
    printf '.perf-prof/\n' >> "$(git rev-parse --git-common-dir)/info/exclude"
@@ -79,12 +79,13 @@ pnpm exec tsx perf/ab.mts main main             # noise control (discard the fir
 pnpm exec tsx perf/ab.mts                       # HEAD vs working tree
 pnpm exec tsx perf/ab.mts HEAD~1 HEAD           # previous commit vs current commit
 pnpm exec tsx perf/ab.mts HEAD~1 HEAD --only cookies --iters 150   # decide one targeted case
-pnpm exec tsx --expose-gc perf/solo.mts main query-large    # confirm one case, one revision
-pnpm exec tsx perf/solo.mts main HEAD query-large --pairs 4  # the number a PR reports
+pnpm exec tsx --expose-gc perf/solo.mts main query-large     # confirm one case, one revision
+pnpm exec tsx perf/solo.mts main HEAD query-large            # the number a PR reports (8 pairs, 100 iters)
+pnpm exec tsx perf/solo.mts main main query-large            # its identical-code control, always
 pnpm exec tsx perf/mem.mts main HEAD            # bytes per instance, cases with alloc()
 pnpm exec tsx perf/profile.mts                  # all cases, 4 s
 pnpm exec tsx perf/profile.mts fail-case --seconds 2 --top 15 --deps
-pnpm exec tsx perf/profile.mts --by-area        # how much of this profile is my instrument?
+pnpm exec tsx perf/profile.mts --by-area --depth 3   # how much of this profile is my instrument?
 pnpm exec tsx perf/profile.mts --callers resolveAll   # who calls the hot function
 pnpm exec tsx perf/profile.mts --lines resolveAll     # which statements inside it are hot
 pnpm exec tsx perf/profile.mts --lines src/parse.js:120   # the same, for an anonymous function
@@ -99,9 +100,9 @@ Every script also takes `--entry`, `--src` (repeatable), `--cases` and `--only` 
 |---|---|---|
 | `ab.mts` (full suite) | Did anything else move? | The two summaries, and a regression in a case the change did not target |
 | `ab.mts --only <case>` | Did the targeted case move? | Every per-case keep and discard. Same time buys far more paired iterations, and the other cases' heap is gone |
-| `solo.mts A B <case> --pairs 4` | What will a maintainer measure? | The number a PR reports |
+| `solo.mts A B <case>` | What will a maintainer measure? | The number a PR reports, next to `solo.mts A A <case>` as its control |
 
-They give different answers on purpose, and each step removes another part of the co-residency effect: one change measured -69% paired on the full suite, -54% focused and -32% standalone. A focused number may only be compared with a focused control, never with a full-suite band, because the precision comes partly from the other cases being absent.
+They give different answers on purpose, by up to a factor of two and in both directions: across five changes in one campaign the focused run was larger than the full suite for one case, and the standalone run larger than both for another. A focused number may only be compared with a focused control, never with a full-suite band, because the precision comes partly from the other cases being absent. A standalone number is only evidence next to an identical-code control, because process-to-process spread differs by a factor of twenty between cases.
 
 Tune `--iters` and `--repeats` in step 4, against this machine and the session's time budget: one A/B run must fit about 2.5 times the experiment budget. Under the paired-ratio estimator, more iterations in one child buy more than more children, because every extra iteration is another paired sample while another child only repeats the whole measurement. **On a shared machine this reverses.** A run is only data if the machine was quiet for all of it, so a long run is more likely to catch a burst and be thrown away: one campaign found 60-iteration runs overlapping bursts far more often than 25-iteration runs. Keep the runs short enough to fit between bursts and buy precision with `--only` instead.
 
@@ -114,7 +115,7 @@ Per case, `ab.mts` prints the minimum ms of one body for A and B, the delta, the
 - **band** is the interquartile range of the per-iteration deltas. Both markers describe this run, not the change. `?` means the band contains 0%: the iterations disagree about the direction, so this run does not confirm the row. `~` means the band is wide against its own median, which is what an in-process artefact or a too-short case looks like. `?` wins when both would apply, because a band around zero is wide against its own median almost by definition; `~` alone is the interesting shape, a confident-looking median that the iterations do not support. Confirm a marked row with the second run the method already requires, or with `solo.mts`. Treat a row as no effect only when both runs mark it; a row marked once and clean once is a noisy case, not a dead one. Neither marker is a reason to discard on its own.
 - **TOTAL** weights each case by its time, **GEOMEAN** weights every case equally. Gate on both. When they disagree, one big case is paying for several small ones (or the reverse), and the per-case lines say which.
 - **machine after the run** is a short probe once the children have finished. A run is only valid if the machine was quiet for all of it, and that cannot be known before it ends. It does not certify the run either: a burst that starts and ends inside it passes both this and the probe before. Treat a BUSY verdict as an invalid run, log it, and repeat it.
-- **warnings** name a case and what is wrong with it: a body outside the usable range, or a side that ran materially slower at the end of the run than at the start. The second means the case accumulates state across calls, or the machine got busier while it ran.
+- **warnings** name a case and what is wrong with it: a body outside the usable range, a case that ran slower at the end of the run than at the start (it accumulates state across calls), or one that ran faster at the end (it had not reached optimised code when timing started, so raise `--warmup` or the body size). The drift warnings fire only when all four measurements agree, both sides and both load orders. One value on its own is noise: on a real suite the worst of the four reached 113% on a case that accumulates nothing, while the lowest of the four stayed at 9%.
 
 `mem.mts` prints bytes retained per instance. Identical code gives a delta of exactly 0.0, so any non-zero delta is real.
 

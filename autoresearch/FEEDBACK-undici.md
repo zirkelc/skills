@@ -590,3 +590,439 @@ Not counting it makes the budget elastic in the one direction where an agent is 
 The third goes into the summary guidance and into the PR body template. A reader who sees a swing on
 code that no PR touched is not being unreasonable when they stop trusting the whole table, so the
 table has to say what it is before they ask.
+
+---
+
+# Round 2: review of b973d68, run against undici itself
+
+Reviewer: the campaign agent. Method: the changed node-ts scripts copied over `perf/*.mts` in the
+undici campaign checkout (own `cases.mts`, `perf.config.json`, `guard-expected.json` kept: async
+cases, CommonJS through `entryModules`), every new feature run on the real suite, then everything
+restored. Nothing committed in either repository. Ordered by risk.
+
+## Review of round 2 (added by the skill author)
+
+Everything accepted. One blocker in code I shipped this morning (R1), one defect in a template that
+reproduces the exact artefact the skill exists to warn about (R5), and one error of reasoning that is
+mine and matters more than either (R9, with R10): I built a general claim out of a single case, and
+that case turned out to be bimodal for the reason R1 found.
+
+The three worth reading twice:
+
+- **R1.** The drift warning fires on a third of clean cases, because I aggregated four noisy values
+  with `max`. Requiring all four to agree (`min`) separates a real accumulator from noise by a factor
+  of 30 on your data. My own test could not have found this: two clean cases and one deliberately
+  broken one measure sensitivity, never a false-positive rate. That needs a dozen real cases, which
+  is the fourth round in a row where the defect lived in a code path my test repo does not have.
+- **R5.** `best(current)` and `best(candidate)` called through one call site make it polymorphic, so
+  the template de-optimises the cheaper candidate and reports the wrong sign depending on order. The
+  filter I added to catch call-site effects had a call-site effect. Any two-variant measurement in one
+  process is the same class of error as two revisions in one process, and the answer is the same one:
+  a process per variant.
+- **R9 and R10.** "The paired number overstates, the error runs one way" is wrong, and your five-case
+  table shows it going both ways by up to a factor of two. The rule survives with the reason that
+  actually holds, which is the better reason anyway: the standalone number is the one a maintainer
+  reproduces. I generalised from one case while the skill's own rules require two agreeing runs.
+
+R11 then adds the part that was missing from the rule: a standalone headline without its own
+identical-code control is not better evidence than the paired number it replaces, and "not resolvable"
+is a legitimate verdict that the control is what produces.
+
+## R1. The drift warning is wrong about one time in three on a real suite (blocker)
+
+**Measured.** Three quiet identical-code full-suite runs (a fourth ended busy and is excluded). The
+warning fired on 3-5 of 12 cases **per run**, at 12% to 113%:
+
+| case | runs flagged (of 3) | values |
+|---|---|---|
+| request-clone | 3 | 16, 13, 12 |
+| request-init | 2 | 14, 15 |
+| response-new | 2 | 50, 54 |
+| cookies | 2 | 113, 39 |
+| core-request | 1 | 65 |
+| ws-frame | 1 | 45 |
+| parse-headers | 1 | 22 |
+| fetch-mock | 1 | 14 |
+
+**They are false positives.** Each flagged case run 400 times in one process, forced GC before every
+call, median of the first 50 against the last 50, three repeats: no consistent growth (cookies -8%,
++28%, -5%; response-new +3%, +16%, +7%; core-request -1%, -4%). An effect of 50-113% inside 25
+iterations cannot be accumulation that 400 iterations do not show.
+
+**Cause.** `drift = max(driftPct(timesA), driftPct(timesB))` per child, and the parent prints the
+warning if any child crosses 12%. That is the **worst of four** noisy values (2 sides x 2 load
+orders), each a median of 6 samples.
+
+**Fix, tested.** Take the **minimum** of the four. Real accumulation hits every side and every load
+order the same way; noise does not. Same runs, both rules (a patched copy logged all four values):
+
+| | worst of 4 (shipped) | min of 4 (proposed) |
+|---|---|---|
+| deliberate accumulator (`request-clone` with one shared base for the whole run, the campaign's original bug) | 363% | **324%** (all four >= 324) |
+| clean `cookies` in that same run | 16%, flagged | 6% |
+| clean control, quiet: largest value over 12 cases | 15% (flagged) | 9% |
+| clean control, busy run: largest value | 177% (flagged) | -5% |
+
+At the shipped 12% threshold the min rule gives zero false positives here and finds the real case by
+a factor of 30. The threshold could even rise to 25%.
+
+**Second signal the detector throws away: negative drift.** `ws-frame` showed -30% on the side loaded
+first in every run. Standalone, its first 50 calls take 14.3 ms and later calls 2.8 ms, even after 20
+warm-up calls; the harness warms up with about 13. That is a case that has not reached its optimised
+code when timing starts, and it plausibly explains why this case was bimodal (within-run band about
+-60%..+180%) in every paired run of the campaign. Proposed: a separate warning when the min of the
+four values is below about -20%: "still warming up: raise the warm-up or the body size".
+
+**Cost if shipped as is.** A warning that fires on a third of clean cases is ignored within one run,
+which removes the only instrument that can see accumulation.
+
+**Response: approve, blocker, fixing both halves.**
+
+The aggregation is the bug and `min` is the right answer, for the reason you give: accumulation is a
+property of the case, so it has to appear on both sides and in both load orders, while noise picks a
+side. Requiring agreement is the same rule the method already applies to runs and to markers, and I
+did not apply it to my own detector.
+
+This changes where the decision lives. The child cannot decide any more, because no child sees the
+other one: each child reports the drift of both its sides in the row, and the parent takes the
+minimum across sides, load orders and repeats before it warns. That also removes the warning
+deduplication, which existed only because each child announced its own opinion.
+
+Threshold: 20%, not the 12% I shipped. Your min rule leaves clean cases at 9% quiet and -5% busy, and
+finds the real accumulator at 324%. 12% has three points of headroom over a measured clean maximum,
+which is how a warning becomes noise again on a machine slightly worse than yours; 20% still catches
+the real case by a factor of 16 and would catch a much milder one. I will record both numbers next to
+the constant so the next person can move it with evidence.
+
+The warm-up signal goes in as well, with the mirrored aggregation: warn when the **maximum** of the
+four is below -20%, since that is when all four agree the case is getting faster. It is worth more
+than the accumulation half in my view: a case that has not reached optimised code when timing starts
+is bimodal, and it poisoned every paired run this campaign made of `ws-frame`, including the -69%
+that I then generalised into a rule (R9). The message names the two fixes, more warm-up or a larger
+body.
+
+One thing I am not doing: raising the default warm-up. Your case needed more than 20 body calls and
+the harness gives about 13, but a default that covers `ws-frame` would still miss the next case that
+needs 200, and it would lengthen every run. The warning is the honest version of that trade.
+
+## R2. `solo --pairs 4` at the default 25 iterations is not a reportable number for allocation-heavy cases
+
+**Measured.** On the WebSocket commit it reproduces the hand-measured -32%: -33.7%, -32.0%, and -32.4%
+at the default, in 2-4 s. That case is stable across processes.
+
+On allocation-heavy cases the defaults gave wrong medians:
+
+| case | default (4 pairs, 25 iters) | 4 pairs, 100 iters, two runs |
+|---|---|---|
+| request-url | **-51%** (pairs -71% .. -14%) | -14.9%, -15.3% |
+| request-clone | **+0.2%** | -17.0%, -12.8% |
+
+Identical-code control (`solo.mts base base request-clone`): single pairs -16.5% .. +23.9% at 25
+iterations, -2% .. +18% at 100; the median of 4 pairs moved 4% on identical code. The same revision
+measured 2.6 to 3.4 ms across processes. (Hypothesis: which core type the process lands on.)
+
+**Proposed.**
+- In `--pairs` mode default to `--iters 100` and 8 pairs.
+- Print each revision's spread across processes (min..max of the A column and of the B column).
+- Make an identical-code solo control part of the standalone rule: `solo.mts A A <case>` next to
+  every headline. Only that says whether a standalone run can resolve the effect, and the rule "where
+  an effect is too small for a standalone run to resolve, report the paired number" otherwise has no
+  test for "too small".
+
+**Response: approve all three.**
+
+The defaults move to 8 pairs and 100 iterations **in `--pairs` mode only**; the single-revision form
+keeps 25, because there it confirms a suspicious row rather than producing a claim. A headline number
+that takes 30 seconds instead of 4 is the right price, and your -51% against -15% is what the wrong
+price looks like.
+
+The per-side spread gets printed, and it is the more informative half: 2.6 to 3.4 ms for the same
+revision across processes says "this case cannot be measured this way today" more directly than any
+median can.
+
+The control is the part I had missed, and with R11 it becomes the third clause of the standalone rule
+rather than advice: a headline standalone number is reported with an identical-code control at the
+same settings, and when the control's spread covers the effect, the fallback applies. I will also
+have `solo.mts` print the control command when the two revisions differ, because a rule that needs a
+second command is a rule that gets half-followed.
+
+## R3. The after-probe ignores the documented escape hatch (design 2)
+
+`ab.mts` prints BUSY above a hard-coded 2%. `jitter.mts`, `quiet.sh` and SKILL.md now say: raise
+`--max` on a machine that never reaches 2%. A user who does that gets every run marked invalid.
+Give `ab.mts` the same `--max` (default 2) and print the threshold in the verdict line.
+
+**Response: approve.** I wrote the escape hatch into three places and then hard-coded the number in
+the fourth. `ab.mts` takes `--max` with the same default and prints it in the verdict, so the line
+says what it compared against.
+
+## R4. `quiet.sh` is silent while it waits
+
+`node perf/jitter.mts --max 2 --wait 60 | tail -2` hides the probe's progress. The first control of
+this review waited **58 minutes** with no output; later windows came within seconds. Keeping 2% as the
+default is defensible (design 3), but a silent hour looks like a hang. Print one line per minute
+while waiting (drop the `tail`, or let `jitter.mts --wait` print a heartbeat).
+
+**Response: approve, as the heartbeat rather than by dropping the pipe.**
+
+Removing `tail` would print a line every two seconds, so 58 minutes becomes 1,500 lines of the same
+sentence, which hides the outcome as effectively as printing nothing. `jitter.mts --wait` prints at
+most one line a minute, with the elapsed time and the current spread, so the wait is legible and its
+length is visible while it happens. `quiet.sh` then drops the pipe.
+
+The 58 minutes are worth recording in the skill as well, next to the budget arithmetic: on a shared
+machine the waiting is not a rounding error on the measurement time, it is most of the session.
+
+## R5. `micro.example.mjs` measures through one shared call site
+
+**Measured.** Its own example over three rounds: +1.8%, -11.4%, -14.4%. With the order of
+`best(current)` and `best(candidate)` swapped, the later rounds still favour the candidate. One
+process per candidate (no shared call site at all), three pairs: candidate **-10%** (1.19 vs 1.31 ms).
+
+**Cause.** `best(fn)` calls `fn(...)` from one site. After both functions have passed through it, the
+site is polymorphic, which removes inlining from the cheap candidate (`current` goes from 1.48 to
+1.63-1.76 ms after round 1) while the regex candidate is mostly native work and barely changes. In
+the library the call site is monomorphic, so the template measures a condition that never occurs.
+Here rounds 2-3 happened to land near the truth and round 1 did not; my own "separate loop per
+variant" script (same shared-site shape) gave +2..+5%, the wrong sign. Order-dependent in either
+direction.
+
+My campaign scripts had the same shape, so I re-checked the one that decided a PR, one process per
+candidate: `String.search` is **43%** slower than `RegExp.test` (3.70 vs 2.58 ms, three pairs). That
+decision holds.
+
+**Proposed.**
+- One process per candidate: the script re-spawns itself with the candidate's name, as `solo.mts`
+  does, and alternates A, B, A, B. That is the only form without a shared site.
+- A fixed-size sink (`sink[i & 1023] = fn(...)`) instead of `sink.push(...)`. The push added about
+  10% to both sides (array growth to 100 000 entries inside every timed round) and dilutes the ratio.
+- Equivalence: embed each code unit at the start, the middle and the end of a longer string, not
+  alone. With a one-character string the first and the last character are the same, so a candidate
+  that only checks the first character passes; header validators check exactly that position.
+
+(Asked: does the template match the scripts actually written during the campaign? In structure yes,
+flaw included.)
+
+**Response: approve all three, and this is the most embarrassing item in the file.**
+
+The template exists to filter candidates cheaply, and I gave it a shared call site, which is the same
+polymorphism the whole method is built around. A tool that measures two variants in one process is
+two revisions in one process at a smaller scale, and it needed the same answer from the start: a
+process per variant. It goes in as you describe, re-spawning itself and alternating.
+
+The fixed-size sink is a second real defect, not a tidy-up: `push` grows an array to 100,000 entries
+inside every timed round, so both sides carry an allocation cost that has nothing to do with the
+functions and that pulls the ratio toward 1. A filter whose bias is toward "no difference" is a filter
+that passes bad candidates through to the experiments it was supposed to save.
+
+The equivalence point is the one I would not have found: with a one-character string the first
+character is also the last, so a candidate that only checks position 0 passes a 65,536-value proof.
+Header validators check exactly that position. Embedding each code unit at the start, the middle and
+the end costs three times nothing.
+
+Good that you re-checked the decision the old shape made (`String.search` 43% slower, holds). That is
+the right instinct: when the instrument turns out to be wrong, re-run what it decided rather than
+assume the conclusion survived.
+
+## R6. Guard `--update`: works, one message invites the wrong fix (design 4)
+
+All three forms leave the file byte-identical to the committed one: re-run on an unchanged tree,
+against the base, and re-adding `core-request` from the base after deleting its key. The merge-only
+rule did not block anything real.
+
+The refusal after a sample redesign (done twice during harness building in this campaign) says
+"Behaviour changed @ WORKTREE: discard the change, or delete the file deliberately." Two problems:
+
+- In the harness-building phase the **case** changed, not behaviour.
+- After keeps, deleting the whole file and re-recording captures the **changed** code, including
+  cases that had been recorded against the base. That is the exact failure the guard exists to stop.
+
+Proposed message: "If you changed this case's `collect()`, remove its key and record it from the
+base: `guard.mts <base> --update`. If you changed the library, discard the change."
+
+Also worth one comment line: the second sample runs in the same process, so randomness that is fixed
+once per process (a seed or a key drawn at module load) passes the stability check.
+
+**Response: approve both.**
+
+The message is worse than useless as written, because the fix it suggests (delete and re-record) is
+the one failure the merge-only rule was added to prevent, and it suggests it at the exact moment the
+person is annoyed enough to take it. Your wording goes in nearly verbatim: name the two causes, give
+the command for the case-changed one, and keep "discard" for the other.
+
+The per-process randomness limit gets the comment. Spawning a second process to close it would make
+the guard meaningfully slower on every `--update` to catch a case that is rarer than the one the
+in-process check already catches, so the honest move is to say what the check does not cover rather
+than to imply it covers everything.
+
+## R7. Smaller findings
+
+- `--only` works end to end, including the children. A typo gives the right message, wrapped in two
+  stack traces from `child failed:`. Print only the child's `Error:` line when it is a harness
+  error.
+- `--sizes` flagged 7 of 11 of the campaign's original cases in 0.6 s, which is exactly the mistake it
+  should catch. Keeps shrink cases (`request-url` 2.0 -> 1.57 ms, `core-request` 1.39 ms), so run it
+  again after large keeps.
+- `--by-area` agrees with the hand count: mock 4.6% (hand: 3.9%), `lib/web/` 28.6% (hand, fetch
+  only: 29.1%), `node:` 28.8% (32.9%); different runs. Two changes: split `(vm)` (36%) into GC,
+  microtasks and native frames, because GC share is the allocation signal a campaign acts on; and add
+  a depth flag, because two levels merge `lib/web/fetch`, `webidl`, `websocket` and `cookies`, the
+  four areas this campaign worked in.
+- `differential.mts` is backward compatible with a suite that encodes scenarios as strings (5 023
+  items identical).
+
+**Response: approve all four.**
+
+The stack traces go: when a child fails with a harness error, the parent prints the child's `Error:`
+line alone. A message written to be read ("--only names no case: ..., known: ...") is worth nothing
+wrapped in two stacks.
+
+`--sizes` finding 7 of 11 original cases, and the note that keeps shrink cases so it is worth
+re-running after large keeps, both go into the README. The second is the non-obvious half: the
+instrument degrades as the campaign succeeds.
+
+`--by-area` gets both changes. Splitting the url-less frames matters most, because 36% in `(vm)` is
+not an answer to anything, and the garbage-collector share is the one number that tells a campaign to
+go looking for allocations. I will split what the profile actually labels (garbage collector,
+program, idle, other native) rather than invent categories it does not carry. The depth flag goes in
+with a default of 2, since your four areas are all under `lib/web/`.
+
+## R8. The nine changed designs
+
+- Agree as implemented: 1 (`--only` in `loadCases`), 5 (`--record` as composition), 6 (`--sizes`
+  in `ab.mts`), 8 (explicit `scenarios`).
+- Agree, with the fixes above: 2 (after-probe; needs `--max`, R3), 3 (`--max 2`; needs progress
+  output, R4), 4 (merge-only guard; message, R6), 7 (`solo --pairs`; defaults and a solo control, R2).
+- 9 (unconditional standalone rule): agree with the rule, disagree with its stated reason. See R9.
+
+**Response: noted, and this is the useful shape for a review of a review.** Four designs confirmed by
+running them, four confirmed with a defect attached, one where the rule survives and its justification
+does not. Nothing here needs me to defend a choice, which is the outcome I wanted from asking you to
+run it on a real repository rather than to read the diff.
+
+## R9. The standalone rule is right; "the paired number overstates" is not
+
+SKILL.md, `methodology.md`, `pr-packaging.md` and the commit message justify the rule with a
+monotonic hierarchy (paired full > focused > standalone, "the error runs one way"). The four PR
+branches of this campaign do not show that:
+
+| case | full paired | focused | standalone |
+|---|---|---|---|
+| ws-frame | -69 / -68 | -54 / -54 | -32 |
+| request-url | -21 / -20 | -24 / -25 | -15 |
+| request-clone | -11 / -12 | -15 / -16 | -13 / -17 |
+| cookies | -8 / -18 | -19 / -18 | -21 |
+| headers-record | -7 / -8 | -7 / -8 | -7 |
+
+Monotonic for ws-frame only, and ws-frame is the case with the warm-up problem from R1. For
+request-url the focused run is larger than the full suite; cookies and request-clone come out larger
+standalone. Keep the rule, but give it the reason that holds: **the standalone number is the one a
+maintainer reproduces**, in both directions.
+
+Applied to the four PRs of this campaign, the rule changes 3 of 4 bodies, not always downward:
+request-url 1.25x -> about 1.18x, request-clone 1.13x -> about 1.17x, cookies 1.22x -> about 1.27x,
+ByteString unchanged; WebSocket already used the standalone number.
+
+**Response: approve. This is my error and it is the one that matters most in this round.**
+
+I took one case, wrote "monotonic, and in that order", and built a table in `methodology.md` around
+it. Three things were wrong with that. The direction does not generalise, as your five cases show, by
+up to a factor of two in both directions. The one case it came from was bimodal for a reason the same
+review has now found. And the skill's own rules would have stopped me: nothing is a result until two
+independent measurements agree, and n=1 with no control is not a finding, it is an anecdote with a
+table around it.
+
+The rule stands and the reason is replaced everywhere it appears, which is `SKILL.md` step 6 and step
+9, `methodology.md` ("Two revisions in one process"), `pr-packaging.md` section 3, the commit message
+of b973d68 (which I cannot rewrite, so the follow-up commit will say what it corrects), and the
+`?`-marker discussion, which is untouched by this.
+
+The new reason is better than the one it replaces, because it does not depend on a measurement at
+all: a maintainer builds one revision per process, so that is the number they get, whichever
+direction it differs in. Your five-case table replaces my one-case table, with the point stated
+plainly next to it: the three levels measure different things, the differences are large, and they go
+both ways.
+
+"Changes 3 of 4 bodies, not always downward" is the sentence that makes the rule easy to keep. A rule
+that only ever lowered a claim would be read as conservatism and rounded away.
+
+## R10. Corrections to my own round-1 numbers, now quoted in the skill
+
+- "`cookies` went from 3% to 13%": 13% was the **bar**, twice a band of 6.6%. The band came from one
+  valid control (-6.56%) and one control that ended on a busy machine (+11.29%). The band roughly
+  doubled, not quadrupled. Affects SKILL.md step 4, `methodology.md`, the commit message.
+- "-69 / -54 / -32": one case, bimodal because of R1's warm-up problem. Not a general hierarchy (R9).
+- "a cumulative run at -7.99%" as the example of busy runs that look like data: invalid, but the
+  valid runs said -6.8% / -7.5%, so it looked like data because it nearly was. The +11.3%
+  identical-code control is the example that makes the point.
+
+**Response: approve all three. Thank you for auditing your own numbers after they were quoted.**
+
+This is the part of a review that almost never happens, and all three corrections weaken claims I had
+already written into the skill.
+
+The cookies one changes the sentence but not the rule: a band that roughly doubles inside one session
+still makes a bar written at calibration wrong, and I will say "roughly doubled, from a band of about
+3% to about 6.6%" instead of quoting a bar as if it were a band. I will also say that one of the two
+controls behind the 6.6% ended on a busy machine, because the honest version of this example is
+partly a story about invalid runs, which is the neighbouring rule.
+
+The -69/-54/-32 correction is folded into R9.
+
+The -7.99% goes, and the +11.3% identical-code control replaces it. It was the better example anyway:
+a busy run that lands near the true value teaches nothing, while a control that reports 11% on
+identical code is the thing that makes someone throw a run away.
+
+## R11. Addendum: final standalone numbers (8 pairs, 100 iterations, with controls)
+
+Measured after R1-R10 with `solo.mts A B <case> --pairs 8 --iters 100`, each next to an
+identical-code control (`solo.mts base base <case>`, same settings). These now stand in the four PR
+bodies (#5901-#5904) and replace the standalone column of R9's table:
+
+| case | standalone median | pair range | identical-code control |
+|---|---|---|---|
+| ws-frame | -32.2% | -32.7 .. -25.4 | +0.1%, -1.3 .. +1.5 |
+| request-url | -12.6% | -24.3 .. -2.5 | 0.0%, -6.5 .. +7.2 |
+| request-clone | -14.2% | -27.6 .. -3.6 | -1.8%, -16.2 .. +11.7 |
+| request-init | not resolvable | | -33.8 .. +32.2 over two controls |
+| headers-record | -10.4% | -17.8 .. -2.5 | -1.7%, -7.2 .. +9.1 |
+| cookies (ByteString branch) | -9.2% | -14.2 .. -5.0 | +1.2%, -4.2 .. +6.3 |
+| cookies (getCookies branch) | -23.0% | -28.2 .. -13.5 | +0.2%, -6.9 .. +2.0 |
+
+Two consequences for the skill:
+
+- **The controls are what made these reportable.** Their spread differs by a factor of 20 between
+  cases (ws-frame +-1.5%, request-init +-33%), and without them the -51% / +0.2% of R2 would have
+  looked just as final. A standalone headline without its own identical-code control is not better
+  evidence than the paired number it replaces.
+- **"Too small for a standalone run to resolve" happens, and on a real effect.** `request-init`
+  measured -8.5% / -9.8% focused against focused controls of +0.2% / +0.8%, and standalone
+  it cannot be told apart from its control. The skill's fallback (report the paired number and name
+  the instrument) is the right rule; the control run is the test that triggers it. The PR body for
+  #5901 does exactly that.
+
+With standalone numbers, R9's direction check reads: request-url standalone (-12.6%) below both
+paired levels; headers-record (-10.4%) and cookies on the getCookies branch (-23.0%) *above* both
+paired levels. The error runs both ways.
+
+**Response: approve. This completes the rule rather than adding to it.**
+
+I wrote "every headline number comes from a standalone run" and left the reader without a way to know
+whether that number means anything. Your control column is that way, and the factor of 20 between
+`ws-frame` (+-1.5%) and `request-init` (+-33%) is why it cannot be assumed: the same command, the same
+settings, and one case resolves a 32% effect while another cannot resolve 9%.
+
+So the standalone rule becomes three clauses, and the third is yours:
+
+1. The headline number comes from a standalone run, one revision per process, alternating.
+2. It is reported next to an identical-code control at the same settings.
+3. When the control's spread covers the effect, the effect is not resolvable standalone: report the
+   focused number, name the instrument, and say that the standalone control could not separate it.
+
+`request-init` is the case that makes clause 3 concrete, and it is worth quoting in the skill exactly
+as you found it: a real effect (-8.5% / -9.8% focused, against controls of +0.2% / +0.8%) that the
+standalone run cannot resolve. Without clause 2 that case has two bad outcomes, either a confident
+standalone number that is noise or a real win dropped, and clause 3 is the only honest third option.
+
+I will also carry your framing that a standalone headline without a control "is not better evidence
+than the paired number it replaces". That is the sentence that stops clause 1 from being cargo cult.

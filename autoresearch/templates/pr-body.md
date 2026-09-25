@@ -5,7 +5,7 @@
 > - gated by a **calibrated noise floor** (~<x>% on the suite total, measured with identical code on both sides): changes under <bar>% total, or under <per-case>% on a targeted case, were discarded, and every keep required a second confirming run.
 > - verified behaviour-preserving by a **characterisation guard** (<what is hashed>) plus the full test suite (<T> tests), both green after every commit.
 >
-> The numbers below are fresh verification runs of **this branch in isolation against `<base>`** (two independent runs each; an identical-source control run measured <c>% total, i.e. noise). Negative = faster. The headline figures come from **standalone runs, one revision per process**, which is what you will measure when you build each side separately; the paired harness is more precise but reports a larger effect for small, call-site-bound cases, so it decides the experiments and does not set the claim.
+> The numbers below are fresh verification runs of **this branch in isolation against `<base>`** (two independent runs each; an identical-source control run measured <c>% total, i.e. noise). Negative = faster. The headline figures come from **standalone runs, one revision per process**, which is what you will measure when you build each side separately, each shown next to an identical-code control at the same settings. The paired harness is the more sensitive instrument and decides which changes were kept, but it holds both revisions in one process, so its per-case numbers can come out either side of the standalone ones; they are not the claim.
 
 ## What this PR does
 
@@ -13,12 +13,12 @@
 
 ## Verification (this branch vs `<base>`)
 
-| case | run 1 | run 2 | standalone | speed-up vs `<base>` |
-|---|---|---|---|---|
-| <targeted case> | <d1> | <d2> | **<s1>** | **<s>x** |
-| <noisy case> | <d1> | <d2> (noisy case) | | n/a |
-| <asymptotic case, standalone> | <d1> | <d2> | <s1> | <s>x at <size>, linear from here |
-| **suite TOTAL** | **<d1>** | **<d2>** | | **<s>x** |
+| case | run 1 | run 2 | standalone | identical-code control | speed-up vs `<base>` |
+|---|---|---|---|---|---|
+| <targeted case> | <d1> | <d2> | **<s1>** | <c1> | **<s>x** |
+| <case the control cannot resolve> | <d1> | <d2> | not resolvable | <c1> | <s>x (focused runs; the standalone control could not separate it) |
+| <asymptotic case> | <d1> | <d2> | <s1> | <c1> | <s>x at <size>, linear from here |
+| **suite TOTAL** | **<d1>** | **<d2>** | | | **<s>x** |
 
 <The suite total is a full-suite paired run and carries the full-suite noise, so a line that moves on
 code this PR does not touch is the instrument, not the change. Say which lines those are.>

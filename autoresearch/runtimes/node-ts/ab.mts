@@ -17,7 +17,7 @@
  */
 import { spawnSync } from "node:child_process";
 import { fileURLToPath } from "node:url";
-import { type PerfCase, WORKTREE, cpuProbe, loadCases, loadConfig, materialise, timeNs } from "./harness.mts";
+import { type PerfCase, WORKTREE, cpuProbe, failFromChild, loadCases, loadConfig, materialise, timeNs } from "./harness.mts";
 
 interface Row {
   name: string;
@@ -30,6 +30,9 @@ interface Row {
   /** Ratio at the 25th and 75th percentile: how stable this case's delta is. */
   p25: number;
   p75: number;
+  /** Lowest and highest of this child's two per-side drifts (see `driftPct`). */
+  driftMin: number;
+  driftMax: number;
 }
 
 /** A body outside this range makes the instrument worse. Checked here and by `--sizes`. */
@@ -42,6 +45,7 @@ const { config, positionals, values } = loadConfig(HARNESS_DIR, process.argv.sli
   warmup: { type: "string" },
   "target-ms": { type: "string" },
   repeats: { type: "string" },
+  max: { type: "string" },
   sizes: { type: "boolean" },
   child: { type: "boolean" },
 });
@@ -51,6 +55,8 @@ const ITERS = Number(values.iters ?? 25);
 const WARMUP = Number(values.warmup ?? 3);
 const TARGET_NS = Number(values["target-ms"] ?? 1.5) * 1_000_000;
 const REPEATS = Number(values.repeats ?? 1);
+/** Machine spread accepted by the probe after the run. Same default and meaning as `jitter.mts`. */
+const MAX_SPREAD = Number(values.max ?? 2);
 
 /** Children are spawned with `--expose-gc`; a missing flag degrades to a no-op. */
 const gc: () => void = (globalThis as { gc?: () => void }).gc ?? (() => {});
@@ -63,18 +69,20 @@ function quantile(sorted: Array<number>, q: number): number {
 }
 
 function median(xs: Array<number>): number {
-  const sorted = [...xs].sort((a, b) => a - b);
-  return quantile(sorted, 0.5);
+  return quantile([...xs].sort((a, b) => a - b), 0.5);
 }
 
 /**
- * How much slower a side ran at the end of its run than at the start. A case that accumulates state
- * (listeners on a long-lived object, a cache, a registry) gets slower every iteration, and nothing
- * else in this harness can see it: the reported milliseconds are a minimum, so they report the
- * cleanest early iteration, and the delta is a paired ratio, so a drift that hits both sides cancels
- * exactly. A rise here is a hint, not a verdict: with few iterations each quarter is a handful of
- * samples, and a machine that got busier during the run raises it as well, which is why the message
- * names both causes and the run's own after-probe answers the second one.
+ * How much slower a side ran at the end of its run than at the start, as a percentage.
+ *
+ * A case that accumulates state (listeners on a long-lived object, a cache, a registry) gets slower
+ * every iteration, and nothing else in this harness can see it: the reported milliseconds are a
+ * minimum, so they report the cleanest early iteration, and the delta is a paired ratio, so a drift
+ * that hits both sides cancels exactly. A large negative value is the opposite problem, a case that
+ * has not reached optimised code when timing starts.
+ *
+ * One value of this is noise: it compares two medians of a few samples each. Four of them, from both
+ * sides and both load orders, are what makes it a signal. See the aggregation in the parent.
  */
 function driftPct(times: Array<number>): number {
   const quarter = Math.floor(times.length / 4);
@@ -82,8 +90,14 @@ function driftPct(times: Array<number>): number {
   return (median(times.slice(-quarter)) / median(times.slice(0, quarter)) - 1) * 100;
 }
 
-/** Clean cases measured 0 to 3% here, a case that grew a shared list measured 26%. */
-const DRIFT_WARN_PCT = 12;
+/**
+ * Thresholds for the aggregated drift, which is the **agreement** of all four values. Measured on a
+ * real twelve-case suite: the worst single value reaches 113% on a clean case, while the lowest of
+ * the four stays at 9% on a quiet machine and below zero on a busy one. A case that really did
+ * accumulate measured 324% on all four.
+ */
+const DRIFT_WARN_PCT = 20;
+const WARMUP_WARN_PCT = -20;
 
 /** Runs inside a child process: times the two entries loaded in the given order. */
 async function measure(entryFirst: string, entrySecond: string): Promise<Array<Row>> {
@@ -145,22 +159,10 @@ async function measure(entryFirst: string, entrySecond: string): Promise<Array<R
       ratios.push(tB / tA);
     }
     ratios.sort((x, y) => x - y);
-    /** Above 50 ms a body contains a collection, below 1 ms it is dominated by jitter. Say so once,
-     * while the fixtures are still cheap to change. */
-    const bodyMs = minA / reps / 1_000_000;
-    /** Tagged so the parent can deduplicate by case and kind: each child measures a slightly
-     * different body time, so the text alone would name the same case once per child. */
-    if (bodyMs > MAX_BODY_MS || bodyMs < MIN_BODY_MS) {
-      console.error(`perf-warning\t${a.name}\tsize\truns ${bodyMs.toFixed(2)} ms per body, outside the ${MIN_BODY_MS} to ${MAX_BODY_MS} ms range`);
-    }
-    const drift = Math.max(driftPct(timesA), driftPct(timesB));
-    if (drift > DRIFT_WARN_PCT) {
-      console.error(
-        `perf-warning\t${a.name}\tdrift\tran ${drift.toFixed(0)}% slower at the end of the run than at the start: the case accumulates state across calls, or the machine got busier during the run`
-      );
-    }
     a.teardown?.();
     b.teardown?.();
+    const driftA = driftPct(timesA);
+    const driftB = driftPct(timesB);
     rows.push({
       name: a.name,
       first: minA / reps,
@@ -168,12 +170,12 @@ async function measure(entryFirst: string, entrySecond: string): Promise<Array<R
       ratio: quantile(ratios, 0.5),
       p25: quantile(ratios, 0.25),
       p75: quantile(ratios, 0.75),
+      driftMin: Math.min(driftA, driftB),
+      driftMax: Math.max(driftA, driftB),
     });
   }
   return rows;
 }
-
-const seenWarnings = new Set<string>();
 
 function child(entryFirst: string, entrySecond: string): Array<Row> {
   const self = fileURLToPath(import.meta.url);
@@ -197,23 +199,14 @@ function child(entryFirst: string, entrySecond: string): Array<Row> {
     ],
     { encoding: "utf8", maxBuffer: 64 * 1024 * 1024, stdio: ["ignore", "pipe", "pipe"] }
   );
-  if (res.status !== 0) throw new Error(`child failed:\n${res.stderr}`);
-  /** Children warn about unusable case sizes and about drift; every child repeats the same warning,
-   * so print each distinct case and kind once rather than four times. */
-  for (const line of (res.stderr ?? "").split("\n").filter(Boolean)) {
-    const tagged = line.startsWith("perf-warning\t");
-    const [, name, kind, text] = tagged ? line.split("\t") : [];
-    const key = tagged ? `${name}\t${kind}` : line;
-    if (seenWarnings.has(key)) continue;
-    seenWarnings.add(key);
-    console.error(tagged ? `warning: case "${name}" ${text}` : line);
-  }
+  if (res.status !== 0) failFromChild(res.stderr ?? "");
   const lines = res.stdout.trim().split("\n");
   return JSON.parse(lines[lines.length - 1]);
 }
 
 /** Combines repeated children of the same load order: minima for the absolute numbers, geometric
- * mean for the ratios, widest band for the dispersion. */
+ * mean for the ratios, widest band for the dispersion, and the extremes for the drift, which is
+ * aggregated by agreement. */
 function combine(runs: Array<Array<Row>>): Array<Row> {
   const geo = (xs: Array<number>) => Math.exp(xs.reduce((sum, x) => sum + Math.log(x), 0) / xs.length);
   return runs[0].map((row, i) => ({
@@ -223,13 +216,16 @@ function combine(runs: Array<Array<Row>>): Array<Row> {
     ratio: geo(runs.map((r) => r[i].ratio)),
     p25: Math.min(...runs.map((r) => r[i].p25)),
     p75: Math.max(...runs.map((r) => r[i].p75)),
+    driftMin: Math.min(...runs.map((r) => r[i].driftMin)),
+    driftMax: Math.max(...runs.map((r) => r[i].driftMax)),
   }));
 }
 
 /**
  * Times every body once against one revision and reports the ones outside the usable range. Run it
  * after writing the cases and before the first calibration run: the same check inside a measurement
- * only reports a bad fixture once calibration has already been spent on it.
+ * only reports a bad fixture once calibration has already been spent on it. Worth repeating after a
+ * large keep, which can shrink a case out of the range.
  */
 async function reportSizes(rev: string): Promise<void> {
   const cases = await loadCases(config, materialise(config, rev, "sizes"));
@@ -279,6 +275,7 @@ if (values.child) {
   let sumA = 0;
   let sumB = 0;
   let logSum = 0;
+  const warnings: Array<string> = [];
   for (let i = 0; i < orderAB.length; i++) {
     const ab = orderAB[i];
     const ba = orderBA[i];
@@ -307,6 +304,27 @@ if (values.child) {
     sumB += a * ratio;
     const band = `${lo >= 0 ? "+" : ""}${lo.toFixed(1)}..${hi >= 0 ? "+" : ""}${hi.toFixed(1)}%${marker}`;
     console.log(`${ab.name.padEnd(26)}${ms(a)}${ms(a * ratio)} ${pct(ratio)}${band.padStart(17)}${speedup(ratio)}`);
+
+    /**
+     * Warnings are decided here, not in the children, because the signal is agreement between them.
+     * One side of one load order drifting is noise: on a real suite the worst of the four values
+     * reached 113% on a case that does not accumulate at all. All four agreeing is the case.
+     */
+    const bodyMs = a / 1_000_000;
+    if (bodyMs > MAX_BODY_MS || bodyMs < MIN_BODY_MS) {
+      warnings.push(`case "${ab.name}" runs ${bodyMs.toFixed(2)} ms per body, outside the ${MIN_BODY_MS} to ${MAX_BODY_MS} ms range`);
+    }
+    const slowest = Math.min(ab.driftMin, ba.driftMin);
+    const fastest = Math.max(ab.driftMax, ba.driftMax);
+    if (slowest > DRIFT_WARN_PCT) {
+      warnings.push(
+        `case "${ab.name}" ran at least ${slowest.toFixed(0)}% slower at the end of the run than at the start, on every side and both load orders: it accumulates state across calls (a listener list, a cache, a registry)`
+      );
+    } else if (fastest < WARMUP_WARN_PCT) {
+      warnings.push(
+        `case "${ab.name}" ran at least ${(-fastest).toFixed(0)}% faster at the end of the run than at the start, on every side and both load orders: it is still warming up when timing starts, so raise --warmup or the body size`
+      );
+    }
   }
 
   /** TOTAL weights each case by its time, GEOMEAN weights every case equally. Gate on both: a
@@ -318,6 +336,7 @@ if (values.child) {
   console.log(
     `(band = interquartile range of per-iteration deltas; "?" = this run does not confirm the direction; "~" = band wide against its median; either: confirm with a second run or solo.mts)`
   );
+  for (const warning of warnings) console.error(`warning: ${warning}`);
 
   /**
    * A run is only valid if the machine was quiet for all of it, and that cannot be known before it
@@ -327,8 +346,8 @@ if (values.child) {
    */
   const after = cpuProbe(12);
   console.log(
-    after.spread > 2
-      ? `machine after the run: BUSY, p50 ${after.spread.toFixed(1)}% above min. Treat this run as invalid and repeat it.`
-      : `machine after the run: quiet, p50 ${after.spread.toFixed(1)}% above min.`
+    after.spread > MAX_SPREAD
+      ? `machine after the run: BUSY, p50 ${after.spread.toFixed(1)}% above min (threshold ${MAX_SPREAD}%). Treat this run as invalid and repeat it.`
+      : `machine after the run: quiet, p50 ${after.spread.toFixed(1)}% above min (threshold ${MAX_SPREAD}%).`
   );
 }

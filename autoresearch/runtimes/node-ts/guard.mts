@@ -69,6 +69,9 @@ if (values.update) {
    * the expectations, and the guard would fail at random for the rest of the campaign, which teaches
    * the reader to ignore it. For output that must contain randomness, sample the deterministic part
    * and add a verdict that the rest is self-consistent (a frame decodes back to its payload).
+   *
+   * Both samples run in this process, so a value drawn once per process (a seed, a key created at
+   * module load) is stable here and unstable between runs. This check does not cover that.
    */
   const second = await sampleAll();
   const unstable = Object.keys(actual).filter((name) => actual[name].hash !== second[name]?.hash);
@@ -84,7 +87,15 @@ if (values.update) {
     for (const name of changed) {
       console.error(`MISMATCH ${name}: recorded ${JSON.stringify(existing[name])}, now ${JSON.stringify(actual[name])}`);
     }
-    console.error(`--update adds cases, it never rewrites one. Behaviour changed @ ${rev}: discard the change, or delete ${path.relative(process.cwd(), expectedPath)} deliberately.`);
+    /**
+     * Never suggest deleting the file here. After the first keep, re-recording everything captures
+     * the changed code, including the cases that were recorded against the base, which is the one
+     * failure the merge-only rule exists to prevent, and this is the moment someone is annoyed
+     * enough to do it. The two real causes have two different fixes.
+     */
+    console.error(`--update adds cases, it never rewrites one.`);
+    console.error(`If you changed this case's collect(), remove its key from ${path.relative(process.cwd(), expectedPath)} and record it from the base: guard.mts <base> --update`);
+    console.error(`If you changed the library, it changed behaviour @ ${rev}: discard the change.`);
     process.exit(1);
   }
 

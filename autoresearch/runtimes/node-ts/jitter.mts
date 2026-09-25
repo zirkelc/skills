@@ -33,10 +33,21 @@ const MAX = Number(values.max ?? 2);
 const WAIT_MINUTES = values.wait === undefined ? 0 : Number(values.wait || 10);
 
 const probe = () => cpuProbe(REPEATS);
-const deadline = Date.now() + WAIT_MINUTES * 60_000;
+const started = Date.now();
+const deadline = started + WAIT_MINUTES * 60_000;
 let result = probe();
+/**
+ * One line a minute while waiting, not one per probe. A probe takes a couple of seconds, so printing
+ * each one turns an hour of waiting into a thousand identical lines, and printing none makes it look
+ * like a hang: on a shared machine one wait in this method's history lasted 58 minutes.
+ */
+let lastReport = 0;
 while (result.spread > MAX && Date.now() < deadline) {
-  console.log(`busy: p50 ${result.spread.toFixed(1)}% above min, waiting for <= ${MAX}%`);
+  const waited = Date.now() - started;
+  if (waited - lastReport >= 60_000 || lastReport === 0) {
+    lastReport = waited;
+    console.log(`busy after ${Math.round(waited / 60_000)} min: p50 ${result.spread.toFixed(1)}% above min, waiting for <= ${MAX}% (giving up at ${WAIT_MINUTES} min)`);
+  }
   result = probe();
 }
 

@@ -28,6 +28,7 @@ const { config, positionals, values } = loadConfig(HARNESS_DIR, process.argv.sli
   callers: { type: "string" },
   lines: { type: "string" },
   "by-area": { type: "boolean" },
+  depth: { type: "string" },
 });
 /** Dependency frames matter when the library hands its hot loops to them (parser, selector engine). */
 const DEPS = Boolean(values.deps);
@@ -153,6 +154,7 @@ print("total time", aggTotal);
  * number.
  */
 if (values["by-area"]) {
+  const DEPTH = Number(values.depth ?? 2);
   const byArea = new Map<string, number>();
   for (const n of nodes) {
     const t = selfTime.get(n.id) ?? 0;
@@ -160,21 +162,25 @@ if (values["by-area"]) {
     const url = n.callFrame.url;
     const classified = withoutTreePrefix(url);
     let area: string;
-    if (!url) area = "(vm)";
+    /** Frames without a file are a third of some profiles, and "(vm)" is not an answer to
+     * anything. The collector's share in particular is the signal that sends a campaign looking
+     * for allocations, so keep the labels the profile itself gives. */
+    if (!url) area = n.callFrame.functionName || "(anonymous native)";
     else if (url.startsWith("node:")) area = "node:";
     else if (classified.includes("node_modules/")) {
       const rest = classified.slice(classified.lastIndexOf("node_modules/") + "node_modules/".length);
       area = `node_modules/${rest.startsWith("@") ? rest.split("/").slice(0, 2).join("/") : rest.split("/")[0]}/`;
     } else {
       const rel = classified.startsWith(rootUrl) ? classified.slice(rootUrl.length) : classified.replace(/^file:\/\//, "");
-      /** Two directory levels: deep enough to separate `lib/web/` from `lib/core/`, shallow enough
-       * that the list stays readable. A root-level file lands under its directory, not its own name. */
+      /** `--depth` directory levels. Two separates `lib/web/` from `lib/core/`; a campaign working
+       * inside one of them needs three, or its four areas merge into one line. A root-level file
+       * lands under its directory, not under its own name. */
       const dir = rel.split("/").slice(0, -1);
-      area = dir.length === 0 ? "(root)" : `${dir.slice(0, 2).join("/")}/`;
+      area = dir.length === 0 ? "(root)" : `${dir.slice(0, DEPTH).join("/")}/`;
     }
     byArea.set(area, (byArea.get(area) ?? 0) + t);
   }
-  print("self time by area", byArea);
+  print(`self time by area (depth ${DEPTH})`, byArea);
 }
 
 /**

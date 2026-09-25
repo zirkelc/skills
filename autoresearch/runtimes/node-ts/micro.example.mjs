@@ -15,21 +15,32 @@
  * experiment. One campaign rejected five candidates here for the price of five short scripts, and
  * one of the five explained why an experiment it had already spent had failed.
  *
- * Two traps, both of which a campaign hit:
+ * **One process per variant, always.** The obvious shape of this script, two functions called from
+ * one timing loop, is the same mistake as two revisions in one process: after both have passed
+ * through that call site it is polymorphic, which removes inlining from whichever candidate depended
+ * on it. Measured on this file's own example, the shared-site version reported +1.8%, -11.4% and
+ * -14.4% over three rounds of one run, and swapping the order changed the answer; one process per
+ * variant reports -10% every time. A filter that returns a different sign depending on the order of
+ * its arguments is worse than no filter.
+ *
+ * Two more traps, both of which a campaign hit:
  *
  * 1. **Dead code.** V8 removes work whose result nothing uses, and the failure is not a suspicious
  *    number, it is an attractive one: `new AbortController()` measured 0.02 ms for 80 000
- *    constructions. Write every result into `sink`.
- * 2. **Unrealistic inputs.** Regex against loop flips with string length, and character tests flip
+ *    constructions. Write every result into `sink`, and keep `sink` a fixed size: growing an array
+ *    to 100 000 entries inside the timed loop adds its own cost to both sides and pulls the ratio
+ *    toward zero, which makes the filter pass candidates it should stop.
+ * 2. **Unrealistic inputs.** Regex against loop flips with string length, and a character test flips
  *    with where in the string the interesting character sits. Use the lengths and the shapes the
  *    library really sees, taken from the repo's fixtures or its tests.
  */
+import { spawnSync } from "node:child_process";
+import { fileURLToPath } from "node:url";
 
-/** Keeps results reachable, so nothing is optimized away. Read at the end so it cannot be dropped. */
-const sink = [];
-
-const current = (s) => !s.includes("\n") && !s.includes("\r");
-const candidate = (s) => !/[\n\r]/.test(s);
+const VARIANTS = {
+  current: (s) => !s.includes("\n") && !s.includes("\r"),
+  candidate: (s) => !/[\n\r]/.test(s),
+};
 
 /** Realistic inputs: the values this function is actually called with, not "abc". */
 const inputs = [
@@ -39,36 +50,54 @@ const inputs = [
   "a".repeat(400),
 ];
 
-/** Equivalence first. A faster function that answers differently is not a candidate. */
-for (const input of inputs) {
-  if (current(input) !== candidate(input)) throw new Error(`differs on ${JSON.stringify(input)}`);
-}
-/**
- * For a character test, prove equivalence over every code unit rather than over examples: the whole
- * domain is 65 536 values and the check costs milliseconds.
- */
-for (let code = 0; code < 65_536; code++) {
-  const s = String.fromCharCode(code);
-  if (current(s) !== candidate(s)) throw new Error(`differs on code unit ${code}`);
-}
+/** Fixed-size sink: keeps results reachable without allocating inside the measurement. */
+const sink = new Array(1024).fill(null);
 
-function best(fn, repeats = 20) {
-  /** Warm up, so the first timed round does not measure the interpreter. */
-  for (let r = 0; r < 3; r++) for (const input of inputs) sink.push(fn(input));
+function time(fn) {
+  for (let r = 0; r < 3; r++) for (const input of inputs) sink[r & 1023] = fn(input);
   let min = Number.POSITIVE_INFINITY;
-  for (let r = 0; r < repeats; r++) {
+  for (let r = 0; r < 20; r++) {
     const start = process.hrtime.bigint();
-    for (let i = 0; i < 100_000; i++) sink.push(fn(inputs[i & 3]));
+    for (let i = 0; i < 100_000; i++) sink[i & 1023] = fn(inputs[i & 3]);
     min = Math.min(min, Number(process.hrtime.bigint() - start) / 1_000_000);
-    sink.length = 0;
   }
   return min;
 }
 
-/** Three rounds, alternating, so a machine that drifts does not decide the answer. */
-for (let round = 0; round < 3; round++) {
-  const a = best(current);
-  const b = best(candidate);
-  console.log(`round ${round + 1}: current ${a.toFixed(2)} ms, candidate ${b.toFixed(2)} ms, ${((b / a - 1) * 100).toFixed(1)}%`);
+const variant = process.argv[2];
+if (variant) {
+  console.log(time(VARIANTS[variant]));
+} else {
+  /** Equivalence first. A faster function that answers differently is not a candidate. */
+  for (const input of inputs) {
+    if (VARIANTS.current(input) !== VARIANTS.candidate(input)) throw new Error(`differs on ${JSON.stringify(input)}`);
+  }
+  /**
+   * For a character test, prove equivalence over every code unit rather than over examples: the
+   * whole domain is 65 536 values and the check costs milliseconds. Put each one at the start, in
+   * the middle and at the end of a longer string. In a one-character string the first character is
+   * also the last, so a candidate that only ever checks position 0 passes a 65 536-value proof, and
+   * position 0 is exactly what a header validator is asked about.
+   */
+  for (let code = 0; code < 65_536; code++) {
+    const c = String.fromCharCode(code);
+    for (const s of [`${c}tail`, `head${c}tail`, `head${c}`]) {
+      if (VARIANTS.current(s) !== VARIANTS.candidate(s)) throw new Error(`differs on code unit ${code} in ${JSON.stringify(s)}`);
+    }
+  }
+
+  const self = fileURLToPath(import.meta.url);
+  const run = (name) => Number(spawnSync(process.execPath, [self, name], { encoding: "utf8" }).stdout.trim());
+  const deltas = [];
+  for (let pair = 0; pair < 3; pair++) {
+    /** Alternate which variant starts, so a machine that drifts does not decide the answer. */
+    const first = pair % 2 === 0;
+    const a = first ? run("current") : undefined;
+    const b = run("candidate");
+    const current = first ? a : run("current");
+    deltas.push((b / current - 1) * 100);
+    console.log(`pair ${pair + 1}: current ${current.toFixed(2)} ms, candidate ${b.toFixed(2)} ms, ${deltas[pair].toFixed(1)}%`);
+  }
+  deltas.sort((x, y) => x - y);
+  console.log(`median ${deltas[1].toFixed(1)}%  (reject the candidate only on a large margin)`);
 }
-console.log(`sink ${sink.length}`);

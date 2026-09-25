@@ -63,7 +63,11 @@ Run from the harness location (the campaign branch):
 
 1. One noise-control run with identical code on both sides.
 2. Two A/B runs of the base against the branch, focused on the cases the PR targets where the full suite cannot resolve them.
-3. A standalone run per headline case, alternating whole processes (`solo.mts A B <case> --pairs 4` in node-ts). **Every headline number in the body comes from here.** In-process pairing inflates small, call-site-bound cases on both sides, and by a lot: one change measured -69% paired, -54% focused and -32% standalone. A reviewer who reproduces a third of the claim stops believing the rest of the PR, and two PRs of an earlier campaign were closed over exactly that kind of credibility. Where an effect is too small for a standalone run to resolve, give the paired number and name the instrument.
+3. A standalone run per headline case, alternating whole processes (`solo.mts A B <case> --pairs 8 --iters 100` in node-ts), **each next to an identical-code control** (`solo.mts A A <case>`, same settings).
+
+**Every headline number in the body comes from step 3, with its control beside it.** The reason is not that paired numbers are inflated: across five changes in one campaign the standalone number came out lower twice and higher twice. It is that a maintainer builds one revision per process, so that is the number they will measure, and a reviewer who reproduces something else stops believing the rest of the PR. Two PRs of an earlier campaign were closed over that kind of credibility.
+
+The control is what turns the number into evidence. Process-to-process spread differed by a factor of twenty between cases of the same campaign, from +-1.5% to +-33%, so the same command resolves a 32% effect in one case and cannot resolve 9% in another. Where the control's spread covers the effect, say so in the body, give the focused number and name the instrument: one real change measured -8.5% and -9.8% focused against controls of +0.2% and +0.8%, and no standalone run could separate it from its own control.
 
 Build the verification table from these runs, never from the campaign log: isolated effects differ from stacked ones.
 
