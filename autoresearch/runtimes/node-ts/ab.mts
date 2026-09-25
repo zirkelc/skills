@@ -91,10 +91,17 @@ function driftPct(times: Array<number>): number {
 }
 
 /**
- * Thresholds for the aggregated drift, which is the **agreement** of all four values. Measured on a
- * real twelve-case suite: the worst single value reaches 113% on a clean case, while the lowest of
- * the four stays at 9% on a quiet machine and below zero on a busy one. A case that really did
- * accumulate measured 324% on all four.
+ * Thresholds for the aggregated drift. Each is a rule about how many of the four values (two sides,
+ * two load orders) must agree, and the two rules differ because the two mechanisms do.
+ *
+ * Accumulation is a property of the case, so it hits every instance in every order: require all
+ * four. Measured on a real twelve-case suite, the worst single value reaches 113% on a case that
+ * accumulates nothing, while the lowest of the four stays at 9% on a quiet machine and below zero on
+ * a busy one; a case that really did accumulate measured 324% on all four.
+ *
+ * Warming up is not symmetric. It was observed on the side loaded first, in both children, so two of
+ * the four values carry it by construction and requiring all four would miss it entirely. Require
+ * two, which is still agreement between independent children rather than one noisy number.
  */
 const DRIFT_WARN_PCT = 20;
 const WARMUP_WARN_PCT = -20;
@@ -314,15 +321,17 @@ if (values.child) {
     if (bodyMs > MAX_BODY_MS || bodyMs < MIN_BODY_MS) {
       warnings.push(`case "${ab.name}" runs ${bodyMs.toFixed(2)} ms per body, outside the ${MIN_BODY_MS} to ${MAX_BODY_MS} ms range`);
     }
-    const slowest = Math.min(ab.driftMin, ba.driftMin);
-    const fastest = Math.max(ab.driftMax, ba.driftMax);
+    /** The four values, since the min and max of a two-element set are that set. */
+    const four = [ab.driftMin, ab.driftMax, ba.driftMin, ba.driftMax].sort((x, y) => x - y);
+    const slowest = four[0];
+    const secondLowest = four[1];
     if (slowest > DRIFT_WARN_PCT) {
       warnings.push(
         `case "${ab.name}" ran at least ${slowest.toFixed(0)}% slower at the end of the run than at the start, on every side and both load orders: it accumulates state across calls (a listener list, a cache, a registry)`
       );
-    } else if (fastest < WARMUP_WARN_PCT) {
+    } else if (secondLowest < WARMUP_WARN_PCT) {
       warnings.push(
-        `case "${ab.name}" ran at least ${(-fastest).toFixed(0)}% faster at the end of the run than at the start, on every side and both load orders: it is still warming up when timing starts, so raise --warmup or the body size`
+        `case "${ab.name}" ran at least ${(-secondLowest).toFixed(0)}% faster at the end of the run than at the start, on half of the measurements: it is still warming up when timing starts, so raise --warmup or the body size`
       );
     }
   }
