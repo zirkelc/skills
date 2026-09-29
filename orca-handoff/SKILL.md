@@ -309,10 +309,11 @@ is missing and your task needs it, run the install (for example `pnpm install`)
 in the background so you can keep working while it finishes.
 ```
 
-Two parts are constant: the dependencies paragraph above, and the card-reporting block from
-**Card reporting**. The callback block from **Callback** follows the card one, when there is
-one, so the brief ends with reporting in the order it happens: card first, then callback.
-Everything else flexes with the task.
+Three parts are constant: the dependencies paragraph above, the card-reporting block from
+**Card reporting**, and the summary block from **Final summary**. The callback block from
+**Callback** sits between the card one and the summary one, when there is one, so the brief
+ends with reporting in the order it happens: card first, then callback, then the summary as
+the agent's last message. Everything else flexes with the task.
 
 ## Card reporting
 
@@ -461,8 +462,9 @@ replace the opening paragraph with:
 
 ```
 When you finish, and after you have recorded the outcome on your card, ask your user
-whether to report back to the session that handed this to you. Send nothing unless
-they say yes. There is no condition to check and nothing to wait for.
+whether to report back to the session that handed this to you. Put that question at
+the end of your final summary, so the summary is still the last message. Send nothing
+unless they say yes. There is no condition to check and nothing to wait for.
 ```
 
 When it is **off**, leave the block out and do not paste the handle anywhere.
@@ -480,6 +482,43 @@ its own user can send it further, and that is authorisation this session never s
 divergence that names who asked for it is a normal outcome, worth one line of the summary
 and nothing more. Only a divergence with no reason given is worth raising as one, and even
 then it is a question, not a finding.
+
+## Final summary
+
+The spawned session usually runs in the background until it is done. The user opens its
+terminal later and reads the last message. That message must contain everything they need.
+They must not scroll up through the history to find the assignment, the findings, or the
+changes.
+
+The card comment is one line, and the callback goes to the parent session. Neither is
+written for the user of the spawned session. The final summary is.
+
+Append this block to every brief, after the card block and after the callback block when
+there is one:
+
+```
+End your run with a summary. It is your last message, after the card is set and any
+callback is sent. The person who opens this session later reads only that message,
+so it must stand on its own. Use these three headings:
+
+  Assignment: the task as you received it, in your own words, with its
+  constraints (what was out of scope, the finishing rule you were given).
+
+  Findings: what you found. The root cause and the evidence for it, what you
+  ruled out and why, and anything you noticed but deliberately left alone.
+
+  Changes: what you changed, file by file, and the command that proves it
+  (the test, the build). Name the commit or the PR if one was asked for. If
+  no fix was asked for, say that this was investigation only and no file
+  changed. If you were blocked, say what blocked you and where you stopped.
+
+Do not compress this into a status line. Several paragraphs is normal. Do not
+repeat the full history of what you tried; report the results.
+```
+
+The three headings are fixed so the user finds the same structure in every handoff. The
+length is not: a one-line fix has a short Changes section, and an investigation with no fix
+has an empty one that says so.
 
 ## Reporting back
 
@@ -501,10 +540,10 @@ The first four rows are also what a callback identifies itself by, so the table 
 line arriving later is matched against. Print it even for a short handoff.
 
 Follow the table with what the brief actually covers, which base it took and why, and where
-the outcome will surface: its own Orca card, plus a line back into this session when a
-callback was set. Say plainly that a required callback still lands at the end of the agent's
-run rather than when the condition comes true, so nobody waits on a merge notification that
-was never going to arrive.
+the outcome will surface: its own Orca card, a full summary as the last message in its own
+terminal, plus a line back into this session when a callback was set. Say plainly that a
+required callback still lands at the end of the agent's run rather than when the condition
+comes true, so nobody waits on a merge notification that was never going to arrive.
 
 **Do not print the commands for checking on it.** They are for you to run when the user
 asks, not output to paste at handoff time. The table gives them the handle if they want it.
@@ -541,6 +580,9 @@ orca terminal read --terminal <handle> --json            # what it has produced
 orca terminal send --terminal <handle> --text "..." --enter --json   # steer it
 orca worktree set --worktree path:<path> --comment "..." --json      # note on the card
 ```
+
+When the agent is done, the end of `terminal read` is its **Final summary**: assignment,
+findings, changes. Relay that, not the history above it.
 
 Tear down only when the user asks: `orca worktree rm --worktree path:<path> --force`.
 
