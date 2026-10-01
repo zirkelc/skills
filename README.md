@@ -49,7 +49,7 @@ Each skill is tagged with how it can be invoked:
   ```bash
   npx skills add zirkelc/skills/handoff-doc
   ```
-- **orca-handoff** — Delegate a sub-task to a fresh agent session (Claude by default, or another agent Orca knows such as Codex) in its own new [Orca](https://www.onorca.dev) worktree, so the current conversation stays on its main thread. Writes the whole brief into the spawned session's prompt, since nothing else travels, and reports back what it deliberately left out of scope so it does not go unowned. The spawned session ends with a fixed summary (assignment, findings, changes) as its last message, so its result is readable without scrolling through its history. Requires the Orca CLI.
+- **orca-handoff** — Delegate a sub-task to a fresh agent session (the same agent as the current session by default, or another agent Orca knows such as Codex) in its own new [Orca](https://www.onorca.dev) worktree, so the current conversation stays on its main thread. Writes the whole brief into the spawned session's prompt, since nothing else travels, and reports back what it deliberately left out of scope so it does not go unowned. The spawned session ends with a fixed summary (assignment, findings, changes) as its last message, so its result is readable without scrolling through its history. Requires the Orca CLI.
   - `invocable: auto`
   ```bash
   npx skills add zirkelc/skills/orca-handoff

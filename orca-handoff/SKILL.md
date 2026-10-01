@@ -1,14 +1,14 @@
 ---
 name: orca-handoff
-description: Hand a self-contained sub-task to a fresh agent session (Claude by default, or another agent Orca knows such as Codex) running in its own new Orca worktree, so the current conversation stays focused on the main thread of work. Use when the user says "hand off", "delegate this", "spin up a session for", "give this to codex", "do that separately", or when a tangent would otherwise bloat the current session.
-argument-hint: "what to hand off, free-form, e.g. 'fix the parser bug in repo some-lib, name fix-parser, agent codex, commit and open pr, report back when the pr is open'. Agent defaults to claude."
+description: Hand a self-contained sub-task to a fresh agent session (the same agent as the current session by default, or another agent Orca knows such as Codex) running in its own new Orca worktree, so the current conversation stays focused on the main thread of work. Use when the user says "hand off", "delegate this", "spin up a session for", "give this to codex", "do that separately", or when a tangent would otherwise bloat the current session.
+argument-hint: "what to hand off, free-form, e.g. 'fix the parser bug in repo some-lib, name fix-parser, agent codex, commit and open pr, report back when the pr is open'. Agent defaults to the one running this session."
 ---
 
 # Orca Handoff
 
 Spawn an independent Orca worktree with its own agent session already working on a
-sub-task. The agent is Claude unless another one is named. The current session keeps its
-context and carries on.
+sub-task. The agent is the one running this session unless another one is named. The
+current session keeps its context and carries on.
 
 This is the opposite of entering a worktree. Nothing about the current conversation
 moves. Do **not** call `EnterWorktree` here.
@@ -39,13 +39,16 @@ as `key: value`, and the order does not matter. Read it and work out which part 
   when a bug you hit here actually lives in a library you have cloned. Resolved against
   Orca's registry in **Preflight**, which is the one place this skill is allowed to stop
   and ask.
-- **agent** (default: `claude`): the agent Orca launches in the worktree's first terminal.
-  Any agent id Orca knows is valid; the ids seen so far are `claude`, `codex`, `omp`, `pi`
-  and `grok`, and an installed TUI agent may add more. Take the id as the user wrote it,
-  lowercased ("give this to codex", "agent codex", "use pi for this"). Do not validate it
-  up front, since there is no command that lists the known ids: pass it through, and if
-  `orca worktree create` rejects it, see **The command**. The brief does not change with
-  the agent. It is written for any agent that has a shell and the `orca` CLI.
+- **agent** (default: **the agent running this session**): the agent Orca launches in the
+  worktree's first terminal. The default is read in **Preflight** from this terminal's
+  `agentIdentity`, so a Claude session spawns Claude and a Codex session spawns Codex. A
+  named agent overrides it. Any agent id Orca knows is valid; the ids seen so far are
+  `claude`, `codex`, `omp`, `pi` and `grok`, and an installed TUI agent may add more. Take
+  the id as the user wrote it, lowercased ("give this to codex", "agent codex", "use pi for
+  this"). Do not validate it up front, since there is no command that lists the known ids:
+  pass it through, and if `orca worktree create` rejects it, see **The command**. The brief
+  does not change with the agent. It is written for any agent that has a shell and the
+  `orca` CLI.
 - **commit** (default: **off**): let the handoff commit its work when it is green. Off means
   it leaves the changes uncommitted in the worktree for review.
 - **pr** (default: **off**): let it open a pull request. Implies commit, since there is
@@ -79,7 +82,7 @@ And these pick the agent:
 fix the account issue, agent codex
 give the account issue to codex
 let pi fix the account issue
-fix the account issue                       (claude, the default)
+fix the account issue                       (the current agent, the default)
 ```
 
 And these turn the finishing behaviour on:
@@ -121,6 +124,8 @@ echo "repo: $repo"
 orca repo list --json | jq -r '.result.repos[].path' | grep -Fx "$repo"   # must match
 orca worktree list --json | jq -r '.result.worktrees[].displayName'       # name taken?
 echo "callback handle: ${ORCA_TERMINAL_HANDLE:-none}"    # this terminal, for the callback
+orca terminal show --terminal "$ORCA_TERMINAL_HANDLE" --json \
+  | jq -r '.result.terminal.agentIdentity'                 # current agent, the default
 ```
 
 ### When a repo was named
@@ -167,6 +172,11 @@ callback is possible: go on with the handoff, drop the callback block from the b
 say the outcome will land on the card only. Never invent a handle or reuse one from
 `terminal list`, which would push the callback into somebody else's session.
 
+The same handle gives the default **agent**: `agentIdentity` on this terminal is the agent
+running this session, and the handoff uses it unless the user named another. When the
+handle is empty, or `agentIdentity` is null or missing, there is nothing to read it from:
+use `claude` and say that the default was assumed rather than read.
+
 ## The command
 
 ```sh
@@ -185,12 +195,12 @@ orca worktree create \
 - `--setup skip` is deliberate. Most handoffs are quick fixes that never touch
   `node_modules`, and a full install just delays the start. The brief tells the agent to
   install only if it actually needs to. Pass `--setup run` only if the user asks for it.
-- `--agent <agent>` launches the session in the worktree's **first** terminal, `claude`
-  unless the user named another. Never create the worktree bare and then add a terminal,
-  which leaves an unused fallback shell behind.
+- `--agent <agent>` launches the session in the worktree's **first** terminal: the agent
+  running this session, unless the user named another. Never create the worktree bare and
+  then add a terminal, which leaves an unused fallback shell behind.
 - **If create fails on the agent id**, say so, name the ids known to work (`claude`,
-  `codex`, `omp`, `pi`, `grok`), and offer to re-run with `claude`. Do not substitute the
-  default silently: the user asked for that agent for a reason, and a Claude session
+  `codex`, `omp`, `pi`, `grok`), and offer to re-run with the current agent. Do not
+  substitute it silently: the user asked for that agent for a reason, and a Claude session
   reporting as if it were Codex is a wrong result that looks right.
 - **No `--activate`.** A handoff exists so the user can keep working, so pulling their view
   over to the new worktree defeats it. Note that `--agent` may reveal the worktree anyway;
