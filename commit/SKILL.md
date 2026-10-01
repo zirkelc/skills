@@ -73,11 +73,20 @@ Only carry the relevant files forward into Step 5.
 
 ## Step 5: Draft Commit Message
 
-Write a conventional commit message:
-- **Type:** `feat:`, `fix:`, `chore:`, `refactor:`, `test:`, `docs:`, etc.
-- **Scope (optional):** package name if changes are scoped to one package, e.g. `feat(api):`
-- **Subject:** concise summary of what changed and why (under 72 chars)
-- **Body (if needed):** additional context for complex changes, separated by a blank line
+Write a terse conventional commit message. Why over what — the diff says what.
+
+**Subject line:** `<type>(<scope>): <imperative summary>` — scope optional
+- Types: `feat`, `fix`, `refactor`, `perf`, `docs`, `test`, `chore`, `build`, `ci`, `style`, `revert`
+- Imperative mood: "add", "fix", "remove" — not "added", "adds", "adding"
+- ≤50 chars preferred, hard cap 72; no trailing period
+
+**Body** — skip entirely when subject is self-explanatory. Add body only for:
+- Non-obvious *why*, breaking changes, migration notes, linked issues
+- Wrap at 72 chars; bullets use `-` not `*`; issue refs at end: `Closes #42`
+
+**Never include:** "This commit does X", "I/we/now/currently", AI attribution, emoji (unless project convention requires it)
+
+**Always include body for:** breaking changes, security fixes, data migrations, reverts — future debuggers need the context.
 
 If multiple unrelated changes exist, suggest the user split them into separate commits.
 
