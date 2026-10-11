@@ -10,10 +10,10 @@ npx skills add zirkelc/skills
 
 ## Use globally (symlink)
 
-Symlink every skill in this repo into `~/.claude/skills` so edits here are live everywhere. Run the **sync-skills** skill — it inspects existing global skills, refreshes same-skill copies silently, and asks before replacing anything from a different location. Skills not in this repo are left untouched.
+On my machines, a timer job pulls this repo and links each skill folder into `~/.claude/skills`, so edits here are live everywhere. It never replaces a skill that is already there from another location. To do the same by hand:
 
-```
-/sync-skills
+```bash
+ln -s ~/Developer/skills/<skill> ~/.claude/skills/<skill>
 ```
 
 ## Project overrides
@@ -88,14 +88,6 @@ Each skill is tagged with how it can be invoked:
 - **autoresearch** moved to its own repository, with its history: [zirkelc/autoresearch-skill](https://github.com/zirkelc/autoresearch-skill). It runs a performance campaign on any repo as an autoresearch loop, and it outgrew a directory here: a method, two references, five templates and a working harness per runtime.
   ```bash
   npx skills add zirkelc/autoresearch-skill
-  ```
-
-### Meta
-
-- **sync-skills** — Symlink every skill in this repo into `~/.claude/skills` so edits are live globally. Classifies each target as new / already-linked / content-update / conflict, applies safe changes silently, and asks before replacing a skill from a different location.
-  - `invocable: slash-only`
-  ```bash
-  npx skills add zirkelc/skills/sync-skills
   ```
 
 ### Scaffolding
