@@ -92,10 +92,10 @@ Each skill is tagged with how it can be invoked:
 
 ### Scaffolding
 
-- **claude-code-mod** — Build a new Claude Code mod. Loads the built-in `plugin-authoring` skill, uses the official mods as examples, and adds the engine, UI, test and release lessons learned from building real mods.
+- **create-claude-code-mod** — Build a new Claude Code mod. Loads the built-in `plugin-authoring` skill, uses the official mods as examples, and adds the engine, UI, test and release lessons learned from building real mods.
   - `invocable: slash-only`
   ```bash
-  npx skills add zirkelc/skills/claude-code-mod
+  npx skills add zirkelc/skills/create-claude-code-mod
   ```
 - **typescript-package** — Scaffold a new TypeScript package from the [template-single-typescript](https://github.com/zirkelc/template-single-typescript) template.
   - `invocable: auto`

@@ -1,5 +1,5 @@
 ---
-name: claude-code-mod
+name: create-claude-code-mod
 description: Build a new Claude Code mod (a live pane or panel, a band above the prompt, a status line, a toast, a slash command, or a hook on tool calls or prompts). Uses the official mods as examples for architecture, UI and tests, and adds lessons learned from building real mods. Use when the user wants to create a new Claude Code mod.
 disable-model-invocation: true
 argument-hint: "what the mod must do, e.g. 'a pane that lists the open PRs of this repo'"
