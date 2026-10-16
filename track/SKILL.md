@@ -169,16 +169,24 @@ gh issue create -R <owner>/issues --title "<title>" --body-file - <<'EOF'
 EOF
 ```
 
+**Then subscribe to each upstream link.** Do this by default, without a question. A subscription is private: other users cannot see it, and it notifies nobody. It gives the user the upstream comments between the daily workflow runs. Subscribe through GraphQL with the node id of the issue or pull request:
+
+```bash
+id=$(gh api repos/<owner>/<repo>/issues/<n> --jq .node_id)
+gh api graphql -f id="$id" \
+  -f query='mutation($id: ID!) { updateSubscription(input: {subscribableId: $id, state: SUBSCRIBED}) { subscribable { viewerSubscription } } }' \
+  --jq .data.updateSubscription.subscribable.viewerSubscription
+```
+
+The result must be `SUBSCRIBED`. The issues endpoint also returns the node id of a pull request. Skip this step only when the user says no.
+
 **Then add a reaction upstream**, if the user asked for it or agrees:
 
 ```bash
 gh api -X POST repos/<owner>/<repo>/issues/<n>/reactions -f content=+1
 ```
 
-A reaction is a vote and does not notify subscribers. Do not post a "+1" comment. It
-notifies every subscriber and contains no information. There is no API to subscribe to a
-single issue. If the user wants upstream notifications, give them the URL. This is usually
-not necessary, because the store replaces the subscription.
+A reaction is a vote and does not notify subscribers. Do not post a "+1" comment. It notifies every subscriber and contains no information. Unlike the subscription, the reaction is public, so it needs the user's agreement.
 
 **Then add a reference in the affected code.** In each affected repository, add a comment
 at the workaround:
@@ -263,7 +271,7 @@ permanently.
 
 One or two lines.
 
-- **Filed:** the tracking issue URL, the upstream link, and the annotated files.
+- **Filed:** the tracking issue URL, the upstream link, the subscription, and the annotated files.
 - **Reviewed:** the grouped list only.
 - **Re-checked:** only the changes. "Nothing changed" is a complete answer.
 - **Verified:** per tracking issue: still needed, already removed, or outdated.
