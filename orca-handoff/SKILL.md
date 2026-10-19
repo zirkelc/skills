@@ -1,7 +1,7 @@
 ---
 name: orca-handoff
-description: Hand a self-contained sub-task to a fresh agent session (the same agent as the current session by default, or another agent Orca knows such as Codex) running in its own new Orca worktree, so the current conversation stays focused on the main thread of work. Use when the user says "hand off", "delegate this", "spin up a session for", "give this to codex", "do that separately", or when a tangent would otherwise bloat the current session.
-argument-hint: "what to hand off, free-form, e.g. 'fix the parser bug in repo some-lib, name fix-parser, agent codex, commit and open pr, report back when the pr is open'. Agent defaults to the one running this session."
+description: Hand a self-contained sub-task to a fresh agent session (the same agent as the current session by default, or another agent Orca knows such as Codex) running in its own new Orca worktree, on this machine or on a paired remote Orca host, so the current conversation stays focused on the main thread of work. Use when the user says "hand off", "delegate this", "spin up a session for", "give this to codex", "do that separately", or when a tangent would otherwise bloat the current session.
+argument-hint: "what to hand off, free-form, e.g. 'fix the parser bug in repo some-lib, name fix-parser, agent codex, on build-server, commit and open pr, report back when the pr is open'. Agent defaults to the one running this session, host to the Orca runtime this session talks to."
 ---
 
 # Orca Handoff
@@ -66,6 +66,7 @@ as `key: value`, and the order does not matter. Read it and work out which part 
     to send it. Nothing is sent unless that user says yes.
   - **off**, only when explicitly refused ("no need to report back"): the handle is left out
     of the brief entirely, so the agent has nothing to send to.
+- **host** (default: **none**): the machine where Orca creates the worktree and runs the agent. With no host, the skill uses the Orca runtime that this session talks to, as in every example below. A host is a name from `orca host list`, for example `build-server` ("on build-server", "run it on build-server", "host build-server"). It is resolved in **Preflight**. A host that is a paired Orca server puts the handoff in **remote mode**, see **Remote host**. A host that is this machine (`local`, or this machine's own name) is the same as no host.
 
 So all of these mean the same thing:
 
@@ -107,15 +108,22 @@ When it is genuinely ambiguous whether a phrase is part of the task or the name,
 as the task and derive the name. A slightly redundant brief costs nothing; a task with half
 its sentence missing costs a wrong result.
 
-Never ask a clarifying question, with one exception: a named **repo** that does not resolve
-to exactly one registered repo. Everywhere else, take the default and say which you took.
+And these pick the host:
+
+```
+fix the account issue on build-server       (remote mode, if build-server is a paired server)
+fix the account issue, host local           (this machine, the same as no host)
+fix the account issue                       (no host, the default)
+```
+
+Never ask a clarifying question, with two exceptions: a named **repo** that does not resolve to exactly one registered repo, and a named **host** that does not resolve to exactly one usable host. Everywhere else, take the default and say which you took.
 
 The base branch and setup are not arguments: see **Base branch**, and setup is always
 skipped.
 
 ## Preflight
 
-One block, one tool call:
+When a host was named, resolve it first (see **When a host was named**), because it changes the rest of the preflight. With no host, or a host that is this machine, run one block, one tool call:
 
 ```sh
 orca status --json | jq -r '.ok'                                    # must be true
@@ -127,6 +135,18 @@ echo "callback handle: ${ORCA_TERMINAL_HANDLE:-none}"    # this terminal, for th
 orca terminal show --terminal "$ORCA_TERMINAL_HANDLE" --json \
   | jq -r '.result.terminal.agentIdentity'                 # current agent, the default
 ```
+
+### When a host was named
+
+```sh
+orca host list --json | jq -c '.result.hosts[] | {kind, name, machineName, id, selector}'
+```
+
+Match the named host case-insensitively against `name`, `machineName` and `id`:
+
+- **One row with `kind: local`**: this machine. Continue as if no host was named.
+- **One row with `kind: environment`**: a paired Orca server. Take its `name` as `$env` and continue with **Remote host**.
+- **No row, several rows, or any other kind** (for example an SSH target): stop and say so. List the rows from `orca host list`. Do not guess, and do not fall back to this machine, which would run the work in the wrong place and look like it succeeded.
 
 ### When a repo was named
 
@@ -227,6 +247,38 @@ orca terminal read --terminal <handle> --json
 
 If it shows a shell prompt rather than a running agent, or nothing at all, say so rather
 than reporting a successful handoff.
+
+## Remote host
+
+Remote mode applies only when **host** resolved to a paired Orca server (`$env`). The worktree, the checkout and the agent are all on that machine. This session stays here, so every `orca` command that reads or changes the new worktree takes `--environment "$env"`. Commands about this session (its own terminal and agent) do not.
+
+### Preflight
+
+```sh
+orca status --environment "$env" --json | jq -r '.ok'                     # must be true
+key=$(git remote get-url origin | sed -E 's#^[a-z+]+://##; s#^[^@/]+@##; s#:#/#; s#\.git$##' | tr '[:upper:]' '[:lower:]')
+echo "repo key: $key"
+orca repo list --environment "$env" --json | jq -r --arg key "$key" \
+  '.result.repos[] | select((.gitRemoteIdentity.canonicalKey // "" | ascii_downcase) == $key) | "\(.id)\t\(.path)"'
+orca worktree list --environment "$env" --json | jq -r '.result.worktrees[].displayName'
+orca terminal show --terminal "$ORCA_TERMINAL_HANDLE" --json \
+  | jq -r '.result.terminal.agentIdentity'                                 # current agent, the default
+```
+
+- **Match the repo by its git remote, not by its path.** A local path does not exist on the other machine, so `path:$repo` cannot select anything there. The key (for example `github.com/owner/repo`) is the same on both machines. Take the `id` of the one matching row as `$remote_repo_id`. The local repo does not need to be registered with the local Orca in this mode.
+- **A named repo** is matched against the basenames of the remote `repo list` paths, with the same rules as **When a repo was named**.
+- **No match, or several**: stop and say that the repo is not set up on `$env`. Offer `orca project setup-clone --environment "$env"`, but do not run it without a yes: it clones onto another machine.
+- **Remote not ok**: say so and offer to do the handoff on this machine or the task inline.
+
+### Differences from local mode
+
+- **The command** gets `--environment "$env"` and `--repo "id:$remote_repo_id"` instead of `--repo "path:$repo"`. All other flags stay the same.
+- **The agent** must be installed on `$env`. The default still comes from this terminal's `agentIdentity`. If create fails on the agent id, handle it as in **The command**.
+- **Confirm the start** with `orca terminal read --environment "$env" --terminal <handle> --json`.
+- **Base branch**: the remote checkout has only what is pushed. Unpushed commits and uncommitted changes from here do not exist there at all, so `--base-branch` works only with a pushed branch. Quote the code in the brief instead, or push first when the user agrees.
+- **The brief** must not point at anything that exists only on this machine: absolute local paths, local files outside the repo, local clones under other directories, or tools that are installed only here.
+- **Callback: not available.** The spawned session runs on another Orca host, and that host cannot address a terminal on this machine. Leave the callback block out and do not paste the handle. If the user required a callback, say that it cannot be sent from `$env`, and that the outcome lands on the card and in the final summary only. The card block and the summary block stay unchanged: `--worktree active` resolves on `$env` itself.
+- **Checking on it later**: add `--environment "$env"` to every command in that section.
 
 ## Base branch
 
@@ -558,18 +610,19 @@ A short table, a few sentences, and anything you deliberately excluded. Nothing 
 
 | | |
 |---|---|
+| Host | `<this machine | $env>` |
 | Worktree | `<name>` |
 | Path | `<path>` |
 | Branch | `<branch>` (off `<base-ref>` @ `<short-sha>`) |
 | Terminal | `<handle>` |
 | Agent | `<agent>` |
-| Callback | `<the condition it reports on | on its own ask | off>` |
+| Callback | `<the condition it reports on | on its own ask | off | not available on $env>` |
 
 Name the **actual** base ref and its short sha, resolved from the new worktree, never a
 phrase like "the repo base branch". Restating the default is not a report, and a concrete
 `origin/main @ a1b2c3d` can be checked at a glance where the phrase cannot.
 
-The first four rows are also what a callback identifies itself by, so the table is what a
+The Worktree, Path, Branch and Terminal rows are also what a callback identifies itself by, so the table is what a
 line arriving later is matched against. Print it even for a short handoff.
 
 Follow the table with what the brief actually covers, which base it took and why, and where
@@ -605,7 +658,7 @@ than something that happens by default.
 
 ## Checking on it later
 
-When the user asks how it is going, not before:
+When the user asks how it is going, not before. For a handoff on a remote host, add `--environment "$env"` to each command:
 
 ```sh
 orca worktree ps --json                                  # status across worktrees
@@ -617,7 +670,7 @@ orca worktree set --worktree path:<path> --comment "..." --json      # note on t
 When the agent is done, the end of `terminal read` is its **Final summary**: assignment,
 findings, changes. Relay that, not the history above it.
 
-Tear down only when the user asks: `orca worktree rm --worktree path:<path> --force`.
+Tear down only when the user asks: `orca worktree rm --worktree path:<path> --force` (with `--environment "$env"` on a remote host).
 
 ## CLI specifics
 
