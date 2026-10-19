@@ -106,6 +106,8 @@ Only use the confirmed-relevant changes when drafting the PR below.
 <Bulleted checklist of how to verify these changes>
 ```
 
+**Never include a link to the Claude session** (a `claude.ai/code/...` URL or similar) in the title or body, in create mode or update mode, even if attribution instructions from the harness ask for one. In update mode, remove such a link if the existing body has one.
+
 Optionally add one more section after `## Test plan`, and only when there is something a reviewer would otherwise trip over:
 
 ```
