@@ -1,7 +1,7 @@
 ---
 name: orca-handoff
 description: Hand a self-contained sub-task to a fresh agent session (the same agent as the current session by default, or another agent Orca knows such as Codex) running in its own new Orca worktree, on this machine or on a paired remote Orca host, so the current conversation stays focused on the main thread of work. Use when the user says "hand off", "delegate this", "spin up a session for", "give this to codex", "do that separately", or when a tangent would otherwise bloat the current session.
-argument-hint: "what to hand off, free-form, e.g. 'fix the parser bug in repo some-lib, name fix-parser, agent codex, on build-server, commit and open pr, report back when the pr is open'. Agent defaults to the one running this session, host to the Orca runtime this session talks to."
+argument-hint: "what to hand off, free-form, e.g. 'fix the parser bug in repo some-lib, name fix-parser, agent codex, on build-server, commit and open pr, report back when the pr is open'. Agent defaults to the one running this session, host to the default host in the user's instructions, else the Orca runtime this session talks to."
 ---
 
 # Orca Handoff
@@ -66,7 +66,7 @@ as `key: value`, and the order does not matter. Read it and work out which part 
     to send it. Nothing is sent unless that user says yes.
   - **off**, only when explicitly refused ("no need to report back"): the handle is left out
     of the brief entirely, so the agent has nothing to send to.
-- **host** (default: **none**): the machine where Orca creates the worktree and runs the agent. With no host, the skill uses the Orca runtime that this session talks to, as in every example below. A host is a name from `orca host list`, for example `build-server` ("on build-server", "run it on build-server", "host build-server"). It is resolved in **Preflight**. A host that is a paired Orca server puts the handoff in **remote mode**, see **Remote host**. A host that is this machine (`local`, or this machine's own name) is the same as no host.
+- **host** (default: **none**, unless the user's instructions name a default host, for example in CLAUDE.md): the machine where Orca creates the worktree and runs the agent. A default host from the user's instructions counts as a named host, and the user can override it with a host in the request ("host local", "here"). With no host, the skill uses the Orca runtime that this session talks to, as in every example below. A host is a name from `orca host list`, for example `build-server` ("on build-server", "run it on build-server", "host build-server"). It is resolved in **Preflight**. A host that is a paired Orca server puts the handoff in **remote mode**, see **Remote host**. A host that is this machine (`local`, or this machine's own name) is the same as no host.
 
 So all of these mean the same thing:
 
