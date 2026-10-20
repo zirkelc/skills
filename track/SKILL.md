@@ -160,8 +160,7 @@ Rules for the content:
 **Do not set a label.** The workflow sets the `upstream:*` labels from the upstream state.
 A label set by hand is not verified, and the next workflow run overwrites it.
 
-**Confirm before you file.** Show the title and the full body. Then ask. A clear yes is
-approval. A question about the wording is not approval.
+**File directly.** Do not show a draft and do not ask first. The store is private, and the user can edit or close a tracking issue later. Ask first only when the user asks for a draft, or when the intent is not clear (see Step 3).
 
 ```bash
 gh issue create -R <owner>/issues --title "<title>" --body-file - <<'EOF'
@@ -180,13 +179,13 @@ gh api graphql -f id="$id" \
 
 The result must be `SUBSCRIBED`. The issues endpoint also returns the node id of a pull request. Skip this step only when the user says no.
 
-**Then add a reaction upstream**, if the user asked for it or agrees:
+**Then vote upstream.** Add a +1 reaction to each upstream issue by default, without a question:
 
 ```bash
 gh api -X POST repos/<owner>/<repo>/issues/<n>/reactions -f content=+1
 ```
 
-A reaction is a vote and does not notify subscribers. Do not post a "+1" comment. It notifies every subscriber and contains no information. Unlike the subscription, the reaction is public, so it needs the user's agreement.
+A reaction is a vote and does not notify subscribers. The reaction is public, but it contains only the vote. Skip a pull request (a vote on a PR is not a request for the feature), and skip all reactions when the user says no. Do not post a "+1" comment. It notifies every subscriber and contains no information.
 
 **Then add a reference in the affected code.** In each affected repository, add a comment
 at the workaround:
@@ -271,7 +270,7 @@ permanently.
 
 One or two lines.
 
-- **Filed:** the tracking issue URL, the upstream link, the subscription, and the annotated files.
+- **Filed:** the tracking issue URL and title, the upstream links, the subscriptions and votes, and the annotated files.
 - **Reviewed:** the grouped list only.
 - **Re-checked:** only the changes. "Nothing changed" is a complete answer.
 - **Verified:** per tracking issue: still needed, already removed, or outdated.
