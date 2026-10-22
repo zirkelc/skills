@@ -6,8 +6,8 @@
               [--window macos|macos-right|rings|rings-right|none] [--margin PX] [--margin-fill COLOR|IMAGE]
               [--radius PX]
 
---theme takes a preset from the themes folder next to this script (atom, the default,
-atom-light, neutral, ghostty, terminal-app, terminal-app-pro), or any name that `vhs themes`
+--theme takes a preset from the themes folder next to this script (graphite, the default,
+graphite-light, neutral, ghostty, terminal-app, terminal-app-pro), or any name that `vhs themes`
 lists, such as "Dracula". --color changes one color of the theme (background, foreground,
 cursor, selection, black, red, ..., brightWhite). For a vhs theme, the colors are read from the
 vhs program, because vhs does not print them.
@@ -73,7 +73,7 @@ def fail(message: str) -> None:
 
 def main() -> None:
     parser = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
-    parser.add_argument("--theme", default="atom")
+    parser.add_argument("--theme", default="graphite")
     parser.add_argument("--color", action="append", default=[], metavar="KEY=#HEX")
     parser.add_argument("--font")
     parser.add_argument("--font-size", type=int, default=16)

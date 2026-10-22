@@ -20,7 +20,7 @@ All arguments are optional, free text, in any order. Read them from the request,
   - **a path** ("in ~/demos/my-cli"): use that folder, and create it if needed.
   - **project** ("in the project", "in the repo"): `demo/` at the root of the current git repository (`git rev-parse --show-toplevel`), so the demo is versioned with the code. Suggest an ignore entry for `demo/out/` and do not commit unless the user asks.
   - If the folder already holds a demo (a `README.md` and a `record.sh`), reuse it and change only what the request needs.
-- **Theme** (default: `atom`, and `atom-light` for the light version): a preset name from [`themes/`](themes/), any of the 300+ names that `vhs themes` lists, or explicit colors. If the user cannot decide, record samples to choose from. See [Theme and font](#theme-and-font).
+- **Theme** (default: `graphite`, and `graphite-light` for the light version): a preset name from [`themes/`](themes/), any of the 300+ names that `vhs themes` lists, or explicit colors. If the user cannot decide, record samples to choose from. See [Theme and font](#theme-and-font).
 - **Font** (default: the theme's font, else `JetBrains Mono, Menlo, monospace`) and **size** (default 16).
 - **Window** (default: none): a window frame with a title bar and rounded corners around the terminal, so it looks like a real terminal window, optionally with a title. See [Window frame](#window-frame).
 - **Light and dark** (default: one version; for a README image, offer both): a dark version on GitHub's dark page and a light version on its light page, which the README shows by the reader's theme. See [Light and dark versions](#light-and-dark-versions).
@@ -66,8 +66,8 @@ Write absolute paths into the tapes, or run vhs from the demo folder. vhs resolv
 `scripts/settings.py` prints the `Set` lines for size, font and theme. Write them to the demo folder:
 
 ```sh
-python3 scripts/settings.py > <demo>/settings.tape                     # atom, the default
-python3 scripts/settings.py --theme atom-light > <demo>/settings-light.tape
+python3 scripts/settings.py > <demo>/settings.tape                     # graphite, the default
+python3 scripts/settings.py --theme graphite-light > <demo>/settings-light.tape
 python3 scripts/settings.py --theme ghostty > <demo>/settings.tape
 python3 scripts/settings.py --theme "Dracula" --font "Fira Code, monospace" --font-size 18 > <demo>/settings.tape
 python3 scripts/settings.py --theme neutral --color background=#000000 --color blue=#5fafff > <demo>/settings.tape
@@ -78,8 +78,8 @@ Presets in [`themes/`](themes/):
 
 | Name | Look |
 | --- | --- |
-| `atom` | Atom on a `#262626` background: strong colors on dark grey. The default, and the dark version of a README image. The background is the one of a Claude Code plugin pane in its dark theme, so a pane and the terminal have one color. |
-| `atom-light` | Atom One Light on a `#eeeeee` background. The light version of a README image, and the pane background of Claude Code's light theme. |
+| `graphite` | strong colors on dark grey `#262626`, based on the Atom colors. The default, and the dark version of a README image. The background is the one of a Claude Code plugin pane in its dark theme, so a pane and the terminal have one color. |
+| `graphite-light` | dark colors on light grey `#eeeeee`, based on the Atom One Light colors. The light version of a README image, and the pane background of Claude Code's light theme. |
 | `neutral` | dark grey with the soft colors of Catppuccin Mocha. |
 | `ghostty` | the default colors and font of Ghostty |
 | `terminal-app` | macOS Terminal, profile "Basic" (light) |
@@ -135,7 +135,7 @@ A window suits a README, a tweet, a slide or a landing page. On a page with a ba
 
 For a README, make one version for GitHub's dark page and one for its light page, and let the README pick:
 
-1. Record the takes twice, once with `atom` and once with `atom-light` (a separate settings file each, for example `./record.sh atom` and `./record.sh atom-light`). If the program has its own theme, switch it to light for the light take.
+1. Record the takes twice, once with `graphite` and once with `graphite-light` (a separate settings file each, for example `./record.sh graphite` and `./record.sh graphite-light`). If the program has its own theme, switch it to light for the light take.
 2. Frame the dark take on the dark page and the light take on the light page: `frame.sh ... dark "<title>"` and `frame.sh ... light "<title>" light`.
 3. Name the files `<name>-dark.gif` and `<name>-light.gif`, and show them with a `<picture>`:
 
