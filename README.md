@@ -83,6 +83,14 @@ Each skill is tagged with how it can be invoked:
   npx skills add zirkelc/skills/repo-readme
   ```
 
+### Media
+
+- **terminal-demo**: Record terminal demos with [vhs](https://github.com/charmbracelet/vhs) as an MP4, a GIF or PNG screenshots, for plain CLIs, full-screen TUIs and live Claude Code sessions with a plugin pane. Keeps the tapes, a launch script, a reset script and demo data in one folder, so the next recording is `./record.sh`. Checks every take with a contact sheet of its frames, and speeds up the wait for a model. Optional arguments: the demo location (a temp folder by default, a path, or `demo/` in the project), the theme (`neutral`, `ghostty`, `terminal-app`, `terminal-app-pro`, or any [vhs theme](https://github.com/charmbracelet/vhs/blob/main/THEMES.md)), explicit colors, the font, and a macOS window frame. Requires vhs, ttyd, ffmpeg and python3.
+  - `invocable: auto`
+  ```bash
+  npx skills add zirkelc/skills/terminal-demo
+  ```
+
 ### Performance
 
 - **autoresearch** moved to its own repository, with its history: [zirkelc/autoresearch-skill](https://github.com/zirkelc/autoresearch-skill). It runs a performance campaign on any repo as an autoresearch loop, and it outgrew a directory here: a method, two references, five templates and a working harness per runtime.
