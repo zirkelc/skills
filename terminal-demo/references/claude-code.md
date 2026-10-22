@@ -1,5 +1,19 @@
 # Recording Claude Code with vhs
 
+## Best isolation: a demo home
+
+The strongest isolation is a separate home folder for the demo: Claude Code and the shell in the tape both run with `HOME` set to it. Then `~/...` paths in the frames are demo paths (for example `~/notes`), nothing of the real home shows, and nothing in it changes, not even global state such as `~/.claude.json`. Build the home fresh from a fixture in `reset.sh`:
+
+- **Login.** On macOS, Claude Code reads its login from the login keychain, which it finds through `~/Library/Keychains`. Link that folder into the demo home (`ln -s "$HOME/Library/Keychains" "$DEMO_HOME/Library/Keychains"`). On Linux, link `~/.claude/.credentials.json` instead. Without it, the session says "Not logged in".
+- **`~/.claude.json`.** Write one with `hasCompletedOnboarding`, `lastOnboardingVersion` and `lastReleaseNotesSeen` (set to `claude --version`), the trust of the working directory (`"projects": { "<dir>": { "hasTrustDialogAccepted": true } }`), and the counters of the notices that a fresh home shows, as seen. In 2.1.308 these were: `autoPermissionsNotificationCount`, `hasSeenAutoModeEntryWarning`, `hasSeenAutoDefaultNotice`, `announcementImpressions` (the launch promos by id), `promoStartupSeenCount`, `passesUpsellSeenCount` with `passesLastSeenRemaining`, `fullscreenUpsellSeenCount`, `effortCalloutV2Dismissed` and `numStartups`. Probe the start screen with a screenshot and compare the user's own `~/.claude.json` for the key of any notice that is left (read only the key names, never the account data).
+- **Claude Code's theme.** Set `"theme": "dark"` in the demo's `~/.claude.json` for a dark terminal theme and `"theme": "light"` for a light one. Claude Code draws its own colors, so with the wrong theme its text looks wrong on the terminal background. A simple way: `reset.sh` takes the theme from the name of the settings file (for example light for a name that ends in `-light`).
+- **Background.** In 2.1.308, a plugin pane has the background `#262626` in the dark theme and `#eeeeee` in the light theme. The `atom` and `atom-light` presets use these colors, so the pane and the terminal have one color. Check the color on a probe screenshot after an update.
+- **`~/.claude/settings.json`.** Put the demo's settings there, for example `"tui": "fullscreen"` (a plugin pane beside the chat), `"skipAutoPermissionPrompt": true` and `"promptSuggestionEnabled": false` (no ghost text in the prompt).
+- **The shell.** In the hidden part of the tape, run `reset.sh` with the real `HOME` (it needs it for the links), then `export HOME=<demo home>`, then start `launch.sh`. After Claude Code exits, `cd ~/...` in the shown part goes to the demo home.
+- On macOS, `/tmp` is `/private/tmp`. Use the physical path (`cd "$DEMO_HOME" && pwd -P`) for `HOME`, so Claude Code and the shell agree on `~`.
+
+The rest of this file describes a lighter isolation in the real home, for when a demo home is not possible.
+
 ## Launch an isolated session
 
 The recording must not show the user's own settings, plugins, MCP servers, CLAUDE.md or memory, and it must load the plugin under test from a local folder. A `launch.sh` that does this:

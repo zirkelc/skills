@@ -6,10 +6,11 @@
               [--window macos|macos-right|rings|rings-right|none] [--margin PX] [--margin-fill COLOR|IMAGE]
               [--radius PX]
 
---theme takes a preset from the themes folder next to this script (neutral, ghostty,
-terminal-app, terminal-app-pro), or any name that `vhs themes` lists, such as "Dracula".
---color changes one color of the theme (background, foreground, cursor, selection, black,
-red, ..., brightWhite). It needs a preset, because vhs does not print its own themes.
+--theme takes a preset from the themes folder next to this script (atom, the default,
+atom-light, neutral, ghostty, terminal-app, terminal-app-pro), or any name that `vhs themes`
+lists, such as "Dracula". --color changes one color of the theme (background, foreground,
+cursor, selection, black, red, ..., brightWhite). For a vhs theme, the colors are read from the
+vhs program, because vhs does not print them.
 --font is a CSS font list, so later names are fallbacks: "Fira Code, Menlo, monospace".
 --window draws a window frame with a title bar around the terminal. --width and --height stay the
 size of the terminal: the margin and the bar are added to them.
@@ -19,6 +20,7 @@ from __future__ import annotations
 
 import argparse
 import json
+import re
 import shutil
 import subprocess
 import sys
@@ -47,6 +49,23 @@ def vhs_themes() -> list[str] | None:
     return [line.strip() for line in (listed.stdout + listed.stderr).splitlines() if line.strip()]
 
 
+def vhs_theme_colors(name: str) -> dict | None:
+    """Reads the colors of a built-in theme from the vhs program, which holds them as JSON text."""
+    path = shutil.which("vhs")
+    if not path:
+        return None
+    data = Path(path).resolve().read_bytes()
+    start = data.find(f'"name": "{name}",'.encode())
+    if start < 0:
+        return None
+    end = data.find(b'"meta"', start)
+    block = data[start:end if end > 0 else start + 2_000].decode("utf-8", "replace")
+    colors = dict(re.findall(r'"(\w+)": "(#[0-9a-fA-F]{6})"', block))
+    if not all(key in colors for key in KEYS):
+        return None
+    return {"name": name, **{key: colors[key] for key in KEYS}}
+
+
 def fail(message: str) -> None:
     print(f"settings.py: {message}", file=sys.stderr)
     sys.exit(2)
@@ -54,7 +73,7 @@ def fail(message: str) -> None:
 
 def main() -> None:
     parser = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
-    parser.add_argument("--theme", default="neutral")
+    parser.add_argument("--theme", default="atom")
     parser.add_argument("--color", action="append", default=[], metavar="KEY=#HEX")
     parser.add_argument("--font")
     parser.add_argument("--font-size", type=int, default=16)
@@ -92,7 +111,9 @@ def main() -> None:
         if key not in KEYS or not value.startswith("#"):
             fail(f"bad --color '{change}'. Use KEY=#HEX with KEY one of: {', '.join(KEYS)}.")
         if theme is None:
-            fail(f"--color needs a preset theme, and '{builtin}' is a vhs built-in. Presets: {', '.join(presets())}.")
+            theme = vhs_theme_colors(builtin)
+            if theme is None:
+                fail(f"cannot read the colors of the vhs theme '{builtin}'. Use a preset: {', '.join(presets())}.")
         theme[key] = value
 
     # With a window, the margin and the bar are added, so the terminal keeps the size asked for.

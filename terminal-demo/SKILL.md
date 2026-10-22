@@ -1,7 +1,7 @@
 ---
 name: terminal-demo
 description: Record terminal demos with vhs, as an MP4 video, a GIF or PNG screenshots, in a way that can be run again with one command. Covers plain CLIs, full-screen TUIs and live Claude Code sessions, including a plugin's pane or mod. Use this skill whenever the user wants a terminal screenshot, a screen recording or GIF of a CLI, media for a tweet, a README image of terminal output, or wants to redo or update earlier recordings, even if they do not name vhs.
-argument-hint: "[what to record] [in <path> | in project] [theme <name> | colors <key>=#hex ...] [font <family> [size]] [window macos|rings]"
+argument-hint: "[what to record] [in <path> | in project] [theme <name> | colors <key>=#hex ...] [font <family> [size]] [window [title <text>]] [light and dark]"
 ---
 
 # Terminal demo
@@ -20,9 +20,10 @@ All arguments are optional, free text, in any order. Read them from the request,
   - **a path** ("in ~/demos/my-cli"): use that folder, and create it if needed.
   - **project** ("in the project", "in the repo"): `demo/` at the root of the current git repository (`git rev-parse --show-toplevel`), so the demo is versioned with the code. Suggest an ignore entry for `demo/out/` and do not commit unless the user asks.
   - If the folder already holds a demo (a `README.md` and a `record.sh`), reuse it and change only what the request needs.
-- **Theme** (default: `neutral`): a preset name from [`themes/`](themes/), any of the 300+ names that `vhs themes` lists, or explicit colors. See [Theme and font](#theme-and-font).
+- **Theme** (default: `atom`, and `atom-light` for the light version): a preset name from [`themes/`](themes/), any of the 300+ names that `vhs themes` lists, or explicit colors. If the user cannot decide, record samples to choose from. See [Theme and font](#theme-and-font).
 - **Font** (default: the theme's font, else `JetBrains Mono, Menlo, monospace`) and **size** (default 16).
-- **Window** (default: none): a window frame with a title bar and rounded corners around the terminal, so it looks like a real terminal window. See [Window frame](#window-frame).
+- **Window** (default: none): a window frame with a title bar and rounded corners around the terminal, so it looks like a real terminal window, optionally with a title. See [Window frame](#window-frame).
+- **Light and dark** (default: one version; for a README image, offer both): a dark version on GitHub's dark page and a light version on its light page, which the README shows by the reader's theme. See [Light and dark versions](#light-and-dark-versions).
 - **Output folder** (default: `out/` in the demo folder). Never overwrite earlier media without asking. Write to a new folder or new file names instead.
 
 ## Before you start
@@ -52,6 +53,7 @@ Make one folder per demo. If the project already has one, use it and its tapes, 
 ```
 
 - **Demo data, not real data.** A recording is published. Never record the user's own files, history, tokens, real hostnames or real paths, if a demo value can replace them. Build a fixture with believable sample content. Before you deliver, look at every screenshot for personal data.
+- **Lines that fit.** Keep each line that the demo prints from the fixture shorter than the terminal width, with the prefix that the command adds (for example a file name from `grep`). A line that breaks in two looks like a fault. Shorten the sample text rather than add a command that cuts the output.
 - **`launch.sh`** starts the program with a fixed working directory and a clean environment (`env -i HOME=... PATH=... TERM=...`), so the user's shell profile, aliases and settings do not leak into the frames. Give the program its own config directory (for example with `XDG_CONFIG_HOME`).
 - **`reset.sh`** removes what the last take added (prefer moving it to the trash, for example with `trash`, over deleting it) and restores the fixture, for example with `git checkout -- .`. Each tape that changes the fixture runs `reset.sh` first, in the hidden part.
 - **`record.sh`** runs `reset.sh`, the tapes in order and the video post-processing, and puts global state back with a `trap ... EXIT`. The next recording is then `./record.sh`.
@@ -64,6 +66,8 @@ Write absolute paths into the tapes, or run vhs from the demo folder. vhs resolv
 `scripts/settings.py` prints the `Set` lines for size, font and theme. Write them to the demo folder:
 
 ```sh
+python3 scripts/settings.py > <demo>/settings.tape                     # atom, the default
+python3 scripts/settings.py --theme atom-light > <demo>/settings-light.tape
 python3 scripts/settings.py --theme ghostty > <demo>/settings.tape
 python3 scripts/settings.py --theme "Dracula" --font "Fira Code, monospace" --font-size 18 > <demo>/settings.tape
 python3 scripts/settings.py --theme neutral --color background=#000000 --color blue=#5fafff > <demo>/settings.tape
@@ -74,18 +78,43 @@ Presets in [`themes/`](themes/):
 
 | Name | Look |
 | --- | --- |
-| `neutral` | dark grey with soft colors. Reads well on light and dark pages, so it is the default for README images and tweets. |
+| `atom` | Atom on a `#262626` background: strong colors on dark grey. The default, and the dark version of a README image. The background is the one of a Claude Code plugin pane in its dark theme, so a pane and the terminal have one color. |
+| `atom-light` | Atom One Light on a `#eeeeee` background. The light version of a README image, and the pane background of Claude Code's light theme. |
+| `neutral` | dark grey with the soft colors of Catppuccin Mocha. |
 | `ghostty` | the default colors and font of Ghostty |
 | `terminal-app` | macOS Terminal, profile "Basic" (light) |
 | `terminal-app-pro` | macOS Terminal, profile "Pro" (dark) |
 
-Any other name goes to vhs as a built-in theme ([list](https://github.com/charmbracelet/vhs/blob/main/THEMES.md), or `vhs themes`), for example `Dracula`, `GitHub Dark`, `Catppuccin Mocha` or `Builtin Solarized Light`. The script matches the name without regard to case, and refuses a name that vhs does not know. `--color KEY=#hex` changes one color (`background`, `foreground`, `cursor`, `selection`, `black` to `white`, `brightBlack` to `brightWhite`) and works on presets only, because vhs does not print the colors of its built-in themes. To keep a custom theme, save it as a new JSON file in `themes/`.
+Any other name goes to vhs as a built-in theme ([list](https://github.com/charmbracelet/vhs/blob/main/THEMES.md), or `vhs themes`), for example `Dracula`, `GitHub Dark`, `Catppuccin Mocha` or `Builtin Solarized Light`. The script matches the name without regard to case, and refuses a name that vhs does not know. `--color KEY=#hex` changes one color (`background`, `foreground`, `cursor`, `selection`, `black` to `white`, `brightBlack` to `brightWhite`). It works on presets and on vhs themes: vhs does not print the colors of its themes, but the script reads them from the vhs program, where they are stored as JSON text. To keep a custom theme, save it as a new JSON file in `themes/`.
+
+Match the background to the program. When the program draws its own panes or panels with a background color (for example a Claude Code plugin pane), give the terminal the same background with `--color background=#...`, so the frame has one color. Take the color from a probe screenshot (for example `ffmpeg -i shot.png -vf crop=1:1:X:Y -f rawvideo -pix_fmt rgb24 - | xxd -p`). In a light terminal, also switch the program to its light theme, if it has one: a program that sets its own colors keeps its dark colors otherwise, and they look wrong on a light background.
+
+**Let the user pick.** `scripts/theme-samples.sh <out-dir> [theme ...]` records one short sample per theme (the 16 colors and some text) and puts them on sheets of 12. With no theme, it records all vhs themes, about 350, in a few minutes. Open the folder for the user (`open -a Preview <out-dir>/*.png` on macOS), and give them the list that it prints for each sheet.
 
 If the user names a terminal or a shell instead of a theme ("like my zsh", "like iTerm"), the colors come from the terminal, not from the shell. Ask which terminal, or take the closest preset and say so.
 
 `--font` takes a CSS font list. vhs draws with fonts installed on the machine and silently takes the next name in the list when one is missing, so look at the first screenshot. Programs that draw icons (for example a prompt theme or Claude Code's spinner) need a font with those glyphs, such as a Nerd Font.
 
 ## Window frame
+
+There are two ways to put the terminal into a window. vhs's own frame is quick, but has no title. `scripts/frame.sh` draws a window with a title after the take.
+
+### With a title: frame.sh
+
+Record the take with no window (the default of `settings.py`), then frame each output:
+
+```sh
+scripts/frame.sh out/demo.mp4 out/demo-dark.gif dark "my-cli"            # GIF, dark page, dark title bar
+scripts/frame.sh out/demo.mp4 out/demo-dark.mp4 dark "my-cli"            # the same as MP4
+scripts/frame.sh out/result.png out/result-light.png light "my-cli" light  # PNG, light page, light title bar
+```
+
+- The arguments are the input (an MP4 or a PNG), the output (`.mp4`, `.gif` or `.png`), the page (`dark` is GitHub's `#0d1117`, `light` is `#ffffff`), the title, and the title bar (`dark` by default, or `light` for a light theme).
+- The window has a macOS title bar of 40 pixels with three buttons and the title, rounded corners, a thin border, and a margin of 24 pixels in the page color. The image has no visible edge on the GitHub page.
+- `frame.sh` draws the frame from `frame.html` with headless Chrome (on macOS from `/Applications`, elsewhere `google-chrome` or `chromium`, or set `CHROME`), and ffmpeg puts the take under it.
+- Ask the user for the title, or take the name of the program or the folder.
+
+### Without a title: vhs
 
 vhs can draw a window around the terminal: a title bar with three buttons, rounded corners, and a margin around it in a color or an image.
 
@@ -98,9 +127,26 @@ python3 scripts/settings.py --window macos --margin-fill wallpaper.png > <demo>/
 - `--window`: `macos` (red, yellow and green buttons), `macos-right`, `rings` (outlined buttons), `rings-right` or `none`.
 - `--margin` (default 40 with a window), `--margin-fill` (a color or an image path, default `#6b7280`) and `--radius` (default 10 with a window).
 - `--width` and `--height` stay the size of the terminal. The script adds the margin and the bar, so the terminal has the same columns and rows with and without a window. This matters for a program whose layout depends on the width, for example a pane that opens only in a wide terminal.
-- The bar has no title text. vhs has no setting for it.
+- The bar has no title text. vhs has no setting for it. Use `frame.sh` for a title.
 
-A window suits a tweet, a slide or a landing page, where the image stands alone. In a README, an image without a window fits the page better.
+A window suits a README, a tweet, a slide or a landing page. On a page with a background (a README), use `frame.sh` with the page color, so that only the window shows.
+
+## Light and dark versions
+
+For a README, make one version for GitHub's dark page and one for its light page, and let the README pick:
+
+1. Record the takes twice, once with `atom` and once with `atom-light` (a separate settings file each, for example `./record.sh atom` and `./record.sh atom-light`). If the program has its own theme, switch it to light for the light take.
+2. Frame the dark take on the dark page and the light take on the light page: `frame.sh ... dark "<title>"` and `frame.sh ... light "<title>" light`.
+3. Name the files `<name>-dark.gif` and `<name>-light.gif`, and show them with a `<picture>`:
+
+```html
+<picture>
+  <source media="(prefers-color-scheme: dark)" srcset="assets/demo-dark.gif" />
+  <img src="assets/demo-light.gif" alt="What the demo shows, in one sentence" />
+</picture>
+```
+
+A live take differs each time, so the two versions show different model output. If they must show the same content, record one take and frame it on both pages instead.
 
 ## Write the tape
 
@@ -147,7 +193,7 @@ Probe tapes are fine. Keep them in `out/` or a temporary folder, and trash them 
 
 - **Speed up the waiting.** `scripts/speedup.sh in.mp4 out.mp4 <from> <to> <factor>` plays the part between two seconds faster and keeps the rest at normal speed. Take the times from the contact sheet.
 - **Make it play everywhere.** The script writes H.264, `yuv420p` and `+faststart`, which X, GitHub and Slack accept. A video for X must be under 2:20 minutes.
-- GitHub shows an MP4 in a README only when it is uploaded through the web editor. For an image in a README, use a PNG screenshot.
+- **Make a GIF for a README.** GitHub shows an MP4 in a README only when it is uploaded through the web editor, but it shows a GIF anywhere. `frame.sh` writes a GIF with a window. For one with no window: `ffmpeg -i in.mp4 -vf "fps=12,split[a][b];[a]palettegen=max_colors=128:stats_mode=diff[p];[b][p]paletteuse=dither=none:diff_mode=rectangle" out.gif`. At 12 frames per second, a 40-second take of a 1600-pixel terminal is about 3 MB.
 
 ## Deliver
 
