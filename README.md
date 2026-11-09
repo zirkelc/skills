@@ -54,6 +54,11 @@ Each skill is tagged with how it can be invoked:
   ```bash
   npx skills add zirkelc/skills/orca-handoff
   ```
+- **orca-move**: Move an existing [Orca](https://www.onorca.dev) worktree and its Claude Code session between this machine and a paired Orca server. The branch, the unpushed commits and the uncommitted changes go in a git bundle, so nothing is committed or pushed. The session transcript is copied and resumed on the target host, with a note to the agent that the host and the paths changed. The source worktree stays until the user approves its removal. Requires the Orca CLI and SSH to the paired server.
+  - `invocable: auto`
+  ```bash
+  npx skills add zirkelc/skills/orca-move
+  ```
 
 ### GitHub
 
