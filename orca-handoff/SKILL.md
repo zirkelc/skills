@@ -546,8 +546,8 @@ replace the opening paragraph with:
 
 ```
 When you finish, and after you have recorded the outcome on your card, ask your user
-whether to report back to the session that handed this to you. Put that question at
-the end of your final summary, so the summary is still the last message. Send nothing
+whether to report back to the session that handed this to you. Put that question in
+the Decision part of your final summary, so the summary is still the last message. Send nothing
 unless they say yes. There is no condition to check and nothing to wait for.
 ```
 
@@ -583,26 +583,25 @@ there is one:
 ```
 End your run with a summary. It is your last message, after the card is set and any
 callback is sent. The person who opens this session later reads only that message,
-so it must stand on its own. Use these three headings:
+so it must stand on its own. Report results, not the path to them. Aim for 20 lines
+or less. Use these headings:
 
-  Assignment: the task as you received it, in your own words, with its
-  constraints (what was out of scope, the finishing rule you were given).
+  Assignment: one or two sentences. The task and the hypothesis you were given. Name
+  a constraint only when it explains the result.
 
-  Findings: what you found. The root cause and the evidence for it, what you
-  ruled out and why, and anything you noticed but deliberately left alone.
+  Findings: the verdict in the first line. Then one bullet per finding, with its
+  evidence in the same bullet. Give each ruled-out cause and each thing you left
+  alone one line. Name IDs, files and log lines so the reader can find the detail.
 
-  Changes: what you changed, file by file, and the command that proves it
-  (the test, the build). Name the commit or the PR if one was asked for. If
-  no fix was asked for, say that this was investigation only and no file
-  changed. If you were blocked, say what blocked you and where you stopped.
+  Changes: what you changed, file by file, and the command that proves it. Name the
+  commit or the PR if one was asked for. When nothing changed, write one line that
+  says so and why (investigation only, or blocked and where).
 
-Do not compress this into a status line. Several paragraphs is normal. Do not
-repeat the full history of what you tried; report the results.
+  Decision: only when you need an answer. Numbered options, the recommended one
+  first, then the question. Every question you ask goes here, at the end.
 ```
 
-The three headings are fixed so the user finds the same structure in every handoff. The
-length is not: a one-line fix has a short Changes section, and an investigation with no fix
-has an empty one that says so.
+The headings are fixed so the user finds the same structure in every handoff. Decision is the only optional one. A one-line fix has a short summary. An investigation has a longer Findings section but still keeps one bullet per finding, not the history of how it was found.
 
 ## Reporting back
 
@@ -668,7 +667,7 @@ orca worktree set --worktree path:<path> --comment "..." --json      # note on t
 ```
 
 When the agent is done, the end of `terminal read` is its **Final summary**: assignment,
-findings, changes. Relay that, not the history above it.
+findings, changes and, when it needs an answer, a decision. Relay that, not the history above it.
 
 Tear down only when the user asks: `orca worktree rm --worktree path:<path> --force` (with `--environment "$env"` on a remote host).
 
