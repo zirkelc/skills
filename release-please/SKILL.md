@@ -101,10 +101,10 @@ Merging pushes to the base branch, which triggers the release-please action and 
 gh run list --repo <owner/repo> --commit <merge-sha> --json databaseId,name,status,conclusion,workflowName
 ```
 
-If no run appears immediately, poll a few times (the run may take a few seconds to register):
+If no run appears yet, it can take a few seconds to register. Wait with a background or monitored command, not a foreground `sleep`, then list the runs again:
 
 ```bash
-sleep 5; gh run list --repo <owner/repo> --commit <merge-sha> --json databaseId,name,status,conclusion,workflowName
+gh run list --repo <owner/repo> --commit <merge-sha> --json databaseId,name,status,conclusion,workflowName
 ```
 
 Watch the relevant run(s) to completion:

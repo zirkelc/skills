@@ -89,7 +89,7 @@ Any other name goes to vhs as a built-in theme ([list](https://github.com/charmb
 
 Match the background to the program. When the program draws its own panes or panels with a background color (for example a Claude Code plugin pane), give the terminal the same background with `--color background=#...`, so the frame has one color. Take the color from a probe screenshot (for example `ffmpeg -i shot.png -vf crop=1:1:X:Y -f rawvideo -pix_fmt rgb24 - | xxd -p`). In a light terminal, also switch the program to its light theme, if it has one: a program that sets its own colors keeps its dark colors otherwise, and they look wrong on a light background.
 
-**Let the user pick.** `scripts/theme-samples.sh <out-dir> [theme ...]` records one short sample per theme (the 16 colors and some text) and puts them on sheets of 12. With no theme, it records all vhs themes, about 350, in a few minutes. Open the folder for the user (`open -a Preview <out-dir>/*.png` on macOS), and give them the list that it prints for each sheet.
+**Let the user pick.** `scripts/theme-samples.sh <out-dir> [theme ...]` records one short sample per theme (the 16 colors and some text) and puts them on sheets of 12. With no theme, it records all vhs themes, about 350, in a few minutes. Show the sheets on an artifact page, with the theme list that it prints for each sheet, and let the user pick a theme on the page.
 
 If the user names a terminal or a shell instead of a theme ("like my zsh", "like iTerm"), the colors come from the terminal, not from the shell. Ask which terminal, or take the closest preset and say so.
 

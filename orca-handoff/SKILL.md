@@ -583,8 +583,8 @@ there is one:
 ```
 End your run with a summary. It is your last message, after the card is set and any
 callback is sent. The person who opens this session later reads only that message,
-so it must stand on its own. Report results, not the path to them. Aim for 20 lines
-or less. Use these headings:
+so it must stand on its own. Report results, not the path to them, and keep it short
+enough to read on one screen. Use these headings:
 
   Assignment: one or two sentences. The task and the hypothesis you were given. Name
   a constraint only when it explains the result.

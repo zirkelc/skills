@@ -71,11 +71,9 @@ Use targeted edits — do not reformat or rewrite files beyond the placeholder s
 cd <project-dir> && pnpm install
 ```
 
-## Step 5: Open in VS Code
+## Step 5: Open the project
 
-```bash
-code <project-dir>
-```
+On a machine with a desktop, open it with `code <project-dir>`. On a headless machine, skip this step and give the path.
 
 Tell the user the project is ready and remind them to:
 - Press **F5** in VS Code to launch the Extension Development Host and test the bundled "Hello World" command

@@ -86,7 +86,7 @@ After a merge, re-read the diff against the new merge base (`git diff $(git merg
 ## Step 3: Identify Unrelated Changes
 
 Read the full diff in the context. Identify any files that appear unrelated to the branch's purpose — e.g. lockfile-only changes from unrelated installs, accidental edits, or changes from a different task. If such files are detected, ask the user:
-> "These files appear unrelated to the PR — should they be included in the description?
+> "These files appear unrelated to the PR. Should they be included in the description?
 > - `path/to/file1`
 > - `path/to/file2`"
 

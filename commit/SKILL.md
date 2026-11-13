@@ -65,7 +65,7 @@ Mark a file as unrelated if it:
 - Appears accidentally modified (e.g. whitespace-only changes in unrelated files)
 
 If unsure about any file, ask the user before proceeding:
-> "These files are also changed — are they part of this commit?
+> "These files are also changed. Are they part of this commit?
 > - `path/to/file1`
 > - `path/to/file2`"
 
